@@ -1,0 +1,58 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Poppins:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	html {
+		@apply antialiased;
+	}
+
+	body {
+		@apply bg-white text-darkestGray;
+	}
+}
+
+@layer components {
+	.transition-normal {
+		@apply transition-all duration-200 ease-in-out;
+	}
+
+	.page-link {
+		@apply transition-normal hover:text-rose;
+	}
+
+	.btn {
+		@apply flex items-center px-4 py-2 space-x-2 rounded-lg;
+	}
+
+	.btn-solid {
+		@apply bg-rose border text-white border-rose hover:bg-lightRose hover:text-[#333] transition-normal;
+	}
+
+	.btn-inverse {
+		@apply hover:bg-rose border hover:text-white border-rose bg-lightRose text-[#333] transition-normal;
+	}
+
+	.glass-field {
+		@apply bg-white/10 backdrop-blur-md border border-white/25 shadow-soft;
+	}
+
+	.hero-overlay {
+		@apply absolute inset-0 pointer-events-none z-0 bg-hero-gradient;
+	}
+
+	.hero-bottom-fade {
+		@apply absolute inset-0 pointer-events-none z-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent;
+	}
+}
+
+@layer utilities {
+	.line-clamp-2 {
+		overflow: hidden;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+	}
+}
