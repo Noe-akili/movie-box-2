@@ -5,39 +5,29 @@ import { useToasts } from "../stores/toast";
 const { toasts, removeToast } = useToasts();
 
 const orderedToasts = computed(() => [...toasts.value].slice(-3));
+
+const dotClass = (type) =>
+	type === "success" ? "bg-emerald-400" : type === "error" ? "bg-brandSoft" : "bg-sky-400";
 </script>
 
 <template>
-	<div
-		class="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4 pointer-events-none"
-	>
+	<div class="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 lg:bottom-8">
 		<div class="w-full max-w-md space-y-2">
 			<TransitionGroup name="toast" tag="div" class="space-y-2">
 				<div
 					v-for="t in orderedToasts"
 					:key="t.id"
-					class="pointer-events-auto flex items-start justify-between gap-3 rounded-xl border border-black/10 bg-white px-4 py-3 shadow-card"
+					class="pointer-events-auto flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-inkRaised/95 px-4 py-3 shadow-deck backdrop-blur"
 				>
 					<div class="flex items-start gap-3">
-						<span
-							class="mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
-							:class="
-								t.type === 'success'
-									? 'bg-emerald-500'
-									: t.type === 'error'
-										? 'bg-rose'
-										: 'bg-sky-500'
-							"
-						></span>
-						<p class="text-sm font-medium text-darkestGray">
-							{{ t.message }}
-						</p>
+						<span class="mt-1 inline-flex h-2.5 w-2.5 shrink-0 rounded-full" :class="dotClass(t.type)"></span>
+						<p class="text-sm font-medium text-white">{{ t.message }}</p>
 					</div>
 					<button
 						type="button"
-						class="rounded-md px-2 py-1 text-sm text-darkerGray transition-normal hover:bg-black/5 hover:text-darkestGray"
+						class="rounded-md px-2 py-1 text-sm text-white/50 transition-normal hover:bg-white/10 hover:text-white"
+						aria-label="Fermer la notification"
 						@click="removeToast(t.id)"
-						aria-label="Close notification"
 					>
 						×
 					</button>

@@ -1,0 +1,123 @@
+import { computed, ref } from "vue";
+import {
+	cancelDownload as apiCancel,
+	createDownload as apiCreate,
+	deleteDownload as apiDelete,
+	fetchDownloads,
+	retryDownload as apiRetry,
+} from "../api/client";
+
+/**
+ * Etat des telechargements cote interface.
+ * Le backend fait le travail (stockage + progression) : ici on lit son etat en boucle
+ * (plus vite pendant un transfert) et on expose des aides pour lancer ou supprimer.
+ */
+const items = ref([]);
+const summary = ref({
+	total: 0,
+	completed: 0,
+	active: 0,
+	queued: 0,
+	errors: 0,
+	paused: 0,
+	completedBytes: 0,
+	activeBytes: 0,
+	maxBytes: 0,
+	freeBytes: null,
+});
+const isLoading = ref(false);
+const lastError = ref(null);
+
+const ACTIVE_STATUSES = ["queued", "downloading"];
+
+let timer = null;
+let started = false;
+
+const hasActive = computed(() => items.value.some((item) => ACTIVE_STATUSES.includes(item.status)));
+const activeCount = computed(() => items.value.filter((item) => ACTIVE_STATUSES.includes(item.status)).length);
+const completedItems = computed(() => items.value.filter((item) => item.status === "completed"));
+const pendingItems = computed(() => items.value.filter((item) => item.status !== "completed"));
+
+const refresh = async ({ silent = false } = {}) => {
+	if (!silent) isLoading.value = true;
+
+	try {
+		const data = await fetchDownloads();
+		items.value = data.items || [];
+		summary.value = { ...summary.value, ...(data.summary || {}) };
+		lastError.value = null;
+	} catch (error) {
+		lastError.value = error.message;
+	} finally {
+		isLoading.value = false;
+	}
+};
+
+/** Boucle adaptative : 1,2 s pendant un transfert, 8 s au repos. */
+const schedule = () => {
+	window.clearTimeout(timer);
+	timer = window.setTimeout(async () => {
+		await refresh({ silent: true });
+		schedule();
+	}, hasActive.value ? 1200 : 8000);
+};
+
+const upsert = (entry) => {
+	const index = items.value.findIndex((item) => item.id === entry.id);
+	if (index === -1) items.value = [entry, ...items.value];
+	else items.value = items.value.map((item) => (item.id === entry.id ? entry : item));
+};
+
+/** Retrouve le telechargement d'un fichier donne (identifiant d'archive + nom de fichier). */
+const entryFor = (sourceId, fileName) =>
+	items.value.find((item) => item.sourceId === sourceId && item.fileName === fileName) || null;
+
+const start = async (payload) => {
+	const entry = await apiCreate(payload);
+	upsert(entry);
+	schedule();
+	return entry;
+};
+
+const pause = async (id) => {
+	const entry = await apiCancel(id);
+	upsert(entry);
+	return entry;
+};
+
+const retry = async (id) => {
+	const entry = await apiRetry(id);
+	upsert(entry);
+	schedule();
+	return entry;
+};
+
+const remove = async (id) => {
+	await apiDelete(id);
+	items.value = items.value.filter((item) => item.id !== id);
+	await refresh({ silent: true });
+};
+
+/** Demarre la lecture de l'etat (appelee une seule fois par App.vue). */
+export const ensureDownloadsPolling = () => {
+	if (started) return;
+	started = true;
+	refresh({ silent: true }).finally(schedule);
+};
+
+export const useDownloads = () => ({
+	items,
+	summary,
+	isLoading,
+	lastError,
+	hasActive,
+	activeCount,
+	completedItems,
+	pendingItems,
+	refresh,
+	entryFor,
+	start,
+	pause,
+	retry,
+	remove,
+});

@@ -1,1 +1,17 @@
-{"name":"","short_name":"","icons":[{"src":"/android-chrome-192x192.png","sizes":"192x192","type":"image/png"},{"src":"/android-chrome-512x512.png","sizes":"512x512","type":"image/png"}],"theme_color":"#ffffff","background_color":"#ffffff","display":"standalone"}
+{
+	"name": "Movie Box — Films, séries et films gratuits",
+	"short_name": "Movie Box",
+	"description": "Catalogue mondial de films et séries, films libres de droits en lecture gratuite et offres légales gratuites.",
+	"start_url": "/",
+	"scope": "/",
+	"display": "standalone",
+	"orientation": "portrait",
+	"lang": "fr",
+	"categories": ["entertainment", "video"],
+	"icons": [
+		{ "src": "/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" },
+		{ "src": "/android-chrome-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+	],
+	"theme_color": "#07070B",
+	"background_color": "#07070B"
+}

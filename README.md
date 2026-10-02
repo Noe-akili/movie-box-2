@@ -1,65 +1,156 @@
-# Movie Box - A Movie Discovery Web Application
+# 🎬 Movie Box
 
-Welcome to Movie Box, a website for finding movies! Users of Movie Box can look for movies, examine in-depth descriptions of them, and bookmark their favorite films for later viewing. You can follow the instructions in this README to run the project locally on your computer.
+Application **web complète** (frontend Vue 3 + backend Node.js) dans le style de l'application
+MovieBox : catalogue mondial de films, séries et animés, **lecture gratuite des films libres de
+droits**, bandes-annonces officielles et orientation vers les offres légales gratuites.
 
-## Prerequisites
+## ✨ Ce que fait l'application
 
-Before you begin, make sure you have the following installed on your system:
+| Fonction | Détail |
+| --- | --- |
+| Catalogue mondial | Tous les films / séries / animés via TMDB : recherche, genres, langues (FR, EN, ES, HI, KO, JA…), tri, chargement infini |
+| Films gratuits | Catalogue libre de droits (Internet Archive) **filtré à la source sur les droits déclarés** (domaine public / Creative Commons) : longs-métrages, séries TV classiques, cinéma noir, muets, animation, courts-métrages, archives Prelinger — **lus directement dans l'application** (lecteur HTML5) |
+| Bande-annonce | Bande-annonce YouTube officielle (TMDB) pour les œuvres encore protégées |
+| Où regarder | Plateformes légales de la région choisie, en mettant en avant les offres **gratuites avec publicité** (Pluto TV, Tubi, Plex, ARTE…) + JustWatch |
+| Ma liste | Favoris et historique stockés en local (aucun compte, aucune donnée envoyée) |
+| Téléchargement | Films et **épisodes de séries libres de droits** téléchargés et stockés par le backend : progression en direct, reprise après interruption, lecture hors ligne et enregistrement sur l'appareil |
+| Langues | Interface en français, métadonnées dans 5 langues, région des offres configurable |
+| Mobile-first / PWA | Barre de navigation basse, gestes, safe-area iOS, installable sur l'écran d'accueil |
 
-[Node.js](https://nodejs.org/en): Make sure you have Node.js installed. You can download it [here](https://nodejs.org/en).
+## 🧱 Architecture
 
-## Getting Started
-
-Clone the repository to your local machine:
-
-```bash
-git clone [https://github.com/Devsheunn/movie-box-hngx-stage-2/tree/master]
+```
+movie-box-2/
+├── index.html                 # entrée Vite
+├── src/                       # FRONTEND (Vue 3 + Vue Router + Tailwind)
+│   ├── api/client.js          # client HTTP unique (/api), langue + région automatiques
+│   ├── components/            # TopBar, BottomNav, HeroCarousel, MediaRow, PosterCard, DownloadButton, DownloadRow…
+│   ├── pages/                 # Home, Browse (films/séries), Free, Search, Detail, Watch, Library, Downloads, Profile
+│   ├── stores/                # settings, library (favoris/historique), downloads (progression), recentSearches, toast, loading
+│   └── util/                  # formatage (durées, tailles, débits, dates), routage des médias
+├── server/                    # BACKEND (Node.js + Express) → voir server/README.md
+│   ├── downloads/             # fichiers téléchargés + manifest.json (non versionné)
+│   └── src/
+│       ├── routes/api.js      # /api/home, /api/search, /api/discover, /api/free, /api/title…
+│       ├── routes/downloads.js# /api/downloads (lancer, suivre, lire, supprimer)
+│       ├── services/tmdb.js   # catalogue mondial (cache mémoire + repli anglais)
+│       ├── services/archive.js# films et séries libres de droits (Internet Archive) + détection des épisodes
+│       ├── services/downloads.js # stockage local, progression, reprise (HTTP Range), file d'attente
+│       └── services/providers.js # plateformes légales (dont offres gratuites)
+├── scripts/dev.mjs            # npm run dev:all (API + front en une seule commande)
+└── design/                    # captures de référence (non versionné)
 ```
 
-Change into the project directory:
+## 🚀 Démarrage
 
 ```bash
-  cd movie-box
+# 1. dépendances (frontend + backend)
+npm run install:all
+
+# 2. clé TMDB dans .env (déjà présente dans le dépôt)
+#    VITE_API_KEY="ta-cle-tmdb"     ou     TMDB_API_KEY="ta-cle-tmdb"
+
+# 3. lancer l'API + l'interface en une commande
+npm run dev:all
+#    frontend → http://localhost:5173
+#    backend  → http://localhost:5174/api/health
+
+# ou séparément
+npm run dev        # frontend seul (proxy /api → http://localhost:5174)
+npm run dev:api    # backend seul
 ```
 
-Install project dependencies using npm:
+Mise en production (l'API Node sert aussi l'interface compilée) :
 
 ```bash
-  npm install
+npm run build      # génère dist/
+npm start          # http://localhost:5174  (interface + API)
 ```
 
-## Configuration
+Variables d'environnement (fichier `.env` à la racine) :
 
-To fetch movie data, Movie Box uses the TMDB API. To access this API, you need to obtain an API key.
+| Variable | Défaut | Rôle |
+| --- | --- | --- |
+| `TMDB_API_KEY` / `VITE_API_KEY` | — | clé TMDB (obligatoire pour le catalogue) |
+| `PORT` | `5174` | port du serveur Node |
+| `WATCH_REGION` | `FR` | région par défaut des offres légales |
+| `ALLOWED_ORIGINS` | `*` | origines CORS autorisées |
+| `RATE_LIMIT_MAX` | `240` | requêtes par minute et par IP |
+| `DOWNLOADS_DIR` | `server/downloads` | dossier de stockage des fichiers téléchargés |
+| `DOWNLOAD_CONCURRENCY` | `2` | téléchargements simultanés (1 à 4) |
+| `DOWNLOAD_MAX_BYTES` | `8589934592` (8 Go) | taille maximale d'un fichier téléchargeable |
+| `DOWNLOAD_MAX_QUEUE` | `60` | nombre maximal de téléchargements conservés |
 
-- Visit the [TMDB](https://www.themoviedb.org/documentation/api) website and create an account.
+## 🔌 API (backend Node.js)
 
-- After creating an account, log in, and go to the [API section](https://www.themoviedb.org/settings/api) to request an API key.
+| Route | Description |
+| --- | --- |
+| `GET /api/health` | état du serveur, du cache et de la clé TMDB |
+| `GET /api/home?lang=fr-FR` | bannière + rails (tendances, films, séries, anime, K-drama, Bollywood… + rails gratuits) |
+| `GET /api/genres?type=movie\|tv` | genres traduits |
+| `GET /api/search?q=&type=all\|movie\|tv&page=` | recherche TMDB + correspondances gratuites |
+| `GET /api/discover/movie\|tv?genre=&language=&sort=&page=` | catalogue complet paginé |
+| `GET /api/free?collection=&license=free\|publicdomain\|cc\|all&q=&sort=&page=` | catalogue libre de droits (Internet Archive), filtré sur les droits déclarés |
+| `GET /api/title/movie\|tv\|archive/:id` | fiche complète : crédits, bande-annonce, images, saisons, plateformes légales, flux vidéo |
+| `GET /api/title/tv/:id/season/:n` | épisodes d'une saison |
+| `GET /api/legal` | explication du modèle de sources |
+| `GET /api/downloads` | téléchargements + progression + état du stockage |
+| `POST /api/downloads` | lance le téléchargement d'un film ou d'un épisode (`sourceId`, `fileName`, `kind`…) |
+| `GET /api/downloads/:id` | détail d'un téléchargement |
+| `POST /api/downloads/:id/retry` | reprend un transfert (repart de l'octet déjà reçu) |
+| `POST /api/downloads/:id/cancel` | met en pause un transfert en cours |
+| `DELETE /api/downloads/:id` | supprime le téléchargement et son fichier |
+| `GET /api/downloads/:id/stream` | lecture du fichier local (supporte `Range`, pour le lecteur intégré) |
+| `GET /api/downloads/:id/file` | enregistrement du fichier sur l'appareil (`Content-Disposition: attachment`) |
 
-- Once you have your API key, create a `.env` file in the project root directory:
+## 📥 Téléchargements (stockage par le backend)
+
+1. Sur la fiche ou la page de lecture d'une œuvre **libre de droits** (film ou série Internet Archive),
+   le bouton « Télécharger » envoie au backend l'identifiant d'archive et le **nom exact du fichier vidéo**.
+2. Le backend vérifie ce couple contre les métadonnées Internet Archive (aucune URL cliente n'est acceptée),
+   applique la limite de taille puis télécharge le fichier dans `server/downloads/` dans une file limitée
+   (2 transferts simultanés par défaut).
+3. La progression (octets reçus, pourcentage, débit, temps restant) est exposée par `GET /api/downloads` ;
+   l'onglet **Téléchargements** la rafraîchit toutes les 1,2 s et affiche un badge dans la barre de navigation.
+4. Un manifeste (`server/downloads/manifest.json`) + un fichier `.part` permettent de **reprendre** un transfert
+   interrompu (même après un redémarrage du serveur) grâce aux requêtes `Range`.
+5. Un fichier terminé se lit **hors ligne** dans le lecteur intégré (`/watch/local/:id`) ou s'enregistre sur
+   l'appareil (`GET /api/downloads/:id/file`).
+
+Les archives multi-épisodes sont détectées automatiquement : `S01E02`, `1x02`, `Épisode 3`, `001. …`,
+`Série - 001 - Titre` et les dossiers `Season 4/` deviennent des épisodes numérotés
+(voir « Séries TV classiques » dans le catalogue gratuit).
+
+## ⚖️ Modèle de sources (important)
+
+Movie Box **n'héberge ni ne diffuse d'œuvre protégée par le droit d'auteur**. L'application :
+
+1. **référence** l'intégralité du catalogue mondial (métadonnées TMDB, affiches, bandes-annonces officielles) ;
+2. **lit en streaming** uniquement les films **libres de droits** (domaine public / licences libres)
+   fournis légalement par Internet Archive, avec le lecteur intégré ;
+3. **oriente** vers les plateformes officielles pour les œuvres protégées, en priorisant les offres
+   **gratuites financées par la publicité** (Pluto TV, Tubi, Plex, ARTE, JustWatch…) ;
+4. **peut stocker localement** (dossier `server/downloads/`) ces mêmes œuvres libres de droits, à la demande de
+   l'utilisateur, pour une lecture hors ligne. Aucune œuvre protégée n'est jamais téléchargée ni relayée ;
+5. **filtre les droits à la source** : le catalogue gratuit interroge Internet Archive avec une clause sur
+   `licenseurl` (domaine public ou licence Creative Commons), actif par défaut et affiché sur chaque fiche,
+   au lieu d'agréger des liens collectés ailleurs.
+
+C'est ce qui permet à l'application de rester **gratuite, durable et conforme** : les sources pirates
+(scraping de liens, agrégateurs illégaux) ne sont pas intégrées, car elles exposent à des poursuites
+et à un blocage rapide du service.
+
+## 🎨 Design
+
+L'interface reprend la charte MovieBox : fond `#07070B`, accent rouge / rose, jaquettes 2:3,
+bannière plein écran, rails défilants, barre de navigation basse.
+Les captures de référence se déposent dans `design/` (voir `design/README.md`) pour affiner
+pixel par pixel.
+
+## 🧪 Vérifications rapides
 
 ```bash
-  touch .env
+curl -s localhost:5174/api/health
+curl -s "localhost:5174/api/search?q=matrix" | head -c 300
+npm run build       # build de production du frontend
 ```
-
-- Open the .env file in a text editor and add your TMDB API key:
-
-```bash
-  VITE_API_KEY = your-api-key-here
-```
-
-- Replace `your-api-key-here` with the API key you obtained from TMDB
-
-## Running the Application
-
-After completing the setup steps, you can run Movie Box on your local machine.
-
-Start the development server:
-
-```bash
-  npm run dev
-```
-
-The <http://localhost:5173> link will be provided in your terminal, ctrl click the link and it will direct you to the site
-# movie-box-2
-# movie-box-2

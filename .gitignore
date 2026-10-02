@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Backend
+server/.env
+server/node_modules
+
+# Fichiers telecharges par le backend (volumineux, propres a la machine)
+server/downloads
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -25,4 +32,5 @@ dist-ssr
 
 #personal
 /design
+.vite
 

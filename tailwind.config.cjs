@@ -18,6 +18,16 @@ module.exports = {
 		},
 		extend: {
 			colors: {
+				// Palette sombre de l'application (style MovieBox)
+				ink: "#07070B",
+				inkSoft: "#0E0E15",
+				inkCard: "#16161F",
+				inkRaised: "#1E1E2A",
+				inkLine: "#2A2A38",
+				brand: "#BE123C",
+				brandSoft: "#F43F5E",
+				gold: "#F5C518",
+				// Anciens jetons conserves pour les composants historiques
 				gray: "#9CA3AF",
 				darkGray: "#666666",
 				darkerLightGray: "#9CA3AF",
@@ -34,14 +44,34 @@ module.exports = {
 			boxShadow: {
 				card: "0 18px 45px -20px rgba(17, 24, 39, 0.35)",
 				soft: "0 10px 25px -18px rgba(17, 24, 39, 0.25)",
+				glow: "0 12px 40px -12px rgba(190, 18, 60, 0.55)",
+				deck: "0 18px 40px -22px rgba(0, 0, 0, 0.9)",
 			},
 			backgroundImage: {
 				"hero-gradient":
 					"linear-gradient(90deg, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.55) 45%, rgba(0,0,0,0.20) 100%)",
+				"hero-scrim":
+					"linear-gradient(180deg, rgba(7,7,11,0.5) 0%, rgba(7,7,11,0.15) 32%, #07070B 100%)",
+				"card-scrim": "linear-gradient(180deg, rgba(7,7,11,0) 45%, rgba(7,7,11,0.92) 100%)",
+				"brand-gradient": "linear-gradient(120deg, #BE123C 0%, #F43F5E 55%, #FB7185 100%)",
 			},
 			fontFamily: {
 				dmSans: ["DM Sans", "sans-serif"],
 				poppins: ["Poppins", "sans-serif"],
+			},
+			keyframes: {
+				shimmer: {
+					"0%": { backgroundPosition: "-500px 0" },
+					"100%": { backgroundPosition: "500px 0" },
+				},
+				fadeUp: {
+					"0%": { opacity: "0", transform: "translateY(10px)" },
+					"100%": { opacity: "1", transform: "translateY(0)" },
+				},
+			},
+			animation: {
+				shimmer: "shimmer 1.4s linear infinite",
+				fadeUp: "fadeUp 0.35s ease-out both",
 			},
 		},
 	},

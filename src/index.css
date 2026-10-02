@@ -6,11 +6,30 @@
 
 @layer base {
 	html {
-		@apply antialiased;
+		@apply bg-ink antialiased;
+		color-scheme: dark;
+		-webkit-tap-highlight-color: transparent;
 	}
 
 	body {
-		@apply bg-white text-darkestGray;
+		@apply bg-ink font-dmSans text-white;
+	}
+
+	::selection {
+		@apply bg-brand text-white;
+	}
+
+	::-webkit-scrollbar {
+		width: 8px;
+		height: 8px;
+	}
+
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	::-webkit-scrollbar-thumb {
+		@apply rounded-full bg-inkLine;
 	}
 }
 
@@ -23,36 +42,135 @@
 		@apply transition-normal hover:text-rose;
 	}
 
+	/* --- Boutons --- */
 	.btn {
-		@apply flex items-center px-4 py-2 space-x-2 rounded-lg;
+		@apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-normal;
 	}
 
 	.btn-solid {
-		@apply bg-rose border text-white border-rose hover:bg-lightRose hover:text-[#333] transition-normal;
+		@apply bg-brand-gradient text-white shadow-glow hover:opacity-90 active:scale-[0.98];
 	}
 
 	.btn-inverse {
-		@apply hover:bg-rose border hover:text-white border-rose bg-lightRose text-[#333] transition-normal;
+		@apply border border-inkLine bg-inkRaised text-white hover:border-white/30 hover:bg-inkCard;
 	}
 
+	.btn-ghost {
+		@apply text-white/70 hover:bg-white/5 hover:text-white;
+	}
+
+	.icon-btn {
+		@apply grid h-10 w-10 place-items-center rounded-full border border-white/10 bg-white/5 text-white/80 backdrop-blur transition-normal hover:bg-white/20 hover:text-white;
+	}
+
+	/* --- Surfaces --- */
+	.surface {
+		@apply rounded-2xl border border-inkLine bg-inkCard;
+	}
+
+	.surface-soft {
+		@apply rounded-xl border border-white/5 bg-white/[0.03];
+	}
+
+	/* --- Chips de navigation --- */
+	.chip {
+		@apply shrink-0 whitespace-nowrap rounded-full border border-inkLine bg-inkCard px-4 py-1.5 text-sm font-medium text-white/70 transition-normal hover:border-white/25 hover:text-white;
+	}
+
+	.chip-active {
+		@apply border-transparent bg-brand-gradient text-white shadow-glow;
+	}
+
+	/* --- Rails horizontaux --- */
+	.rail {
+		@apply flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 no-scrollbar;
+	}
+
+	.rail-item {
+		@apply shrink-0 snap-start;
+	}
+
+	.section-title {
+		@apply text-base font-semibold tracking-tight text-white sm:text-lg lg:text-xl;
+	}
+
+	.badge {
+		@apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide;
+	}
+
+	.badge-free {
+		@apply bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/30;
+	}
+
+	.badge-brand {
+		@apply bg-brand/20 text-brandSoft ring-1 ring-brand/40;
+	}
+
+	.skeleton {
+		@apply animate-shimmer rounded-xl bg-inkCard bg-[linear-gradient(90deg,#16161F_0%,#23232f_50%,#16161F_100%)] bg-[length:500px_100%];
+	}
+
+	/* --- Anciens jetons (composants historiques) --- */
 	.glass-field {
-		@apply bg-white/10 backdrop-blur-md border border-white/25 shadow-soft;
+		@apply border border-white/25 bg-white/10 shadow-soft backdrop-blur-md;
 	}
 
 	.hero-overlay {
-		@apply absolute inset-0 pointer-events-none z-0 bg-hero-gradient;
+		@apply pointer-events-none absolute inset-0 z-0 bg-hero-gradient;
 	}
 
 	.hero-bottom-fade {
-		@apply absolute inset-0 pointer-events-none z-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent;
+		@apply pointer-events-none absolute inset-0 z-0 bg-gradient-to-t from-black/70 via-black/25 to-transparent;
 	}
 }
 
 @layer utilities {
+	.no-scrollbar {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+
+	.no-scrollbar::-webkit-scrollbar {
+		display: none;
+	}
+
+	.line-clamp-1 {
+		overflow: hidden;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 1;
+	}
+
 	.line-clamp-2 {
 		overflow: hidden;
 		display: -webkit-box;
 		-webkit-box-orient: vertical;
 		-webkit-line-clamp: 2;
+	}
+
+	.line-clamp-3 {
+		overflow: hidden;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 3;
+	}
+
+	.line-clamp-4 {
+		overflow: hidden;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 4;
+	}
+
+	.pb-nav {
+		padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+	}
+
+	.pt-safe {
+		padding-top: env(safe-area-inset-top);
+	}
+
+	.pb-safe {
+		padding-bottom: env(safe-area-inset-bottom);
 	}
 }
