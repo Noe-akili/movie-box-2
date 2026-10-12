@@ -10,27 +10,20 @@ import SkeletonRail from "../components/SkeletonRail.vue";
 const router = useRouter();
 
 const FALLBACK_COLLECTIONS = [
-	{ id: "feature_films", label: "Longs-métrages libres" },
-	{ id: "moviesandfilms", label: "Films populaires du web" },
-	{ id: "classic_tv", label: "Séries TV classiques" },
-	{ id: "television", label: "Télévision & émissions" },
-	{ id: "Film_Noir", label: "Cinéma noir" },
-	{ id: "SciFi_Horror", label: "Science-fiction & horreur" },
-	{ id: "silent_films", label: "Films muets" },
-	{ id: "animationandcartoons", label: "Animation" },
-	{ id: "classic_cartoons", label: "Dessins animés" },
-	{ id: "short_films", label: "Courts-métrages" },
-	{ id: "prelinger", label: "Archives Prelinger" },
-	{ id: "opensource_movies", label: "Vidéos libres (open source)" },
+	{ id: "home", label: "Accueil" },
+	{ id: "movies", label: "Films" },
+	{ id: "anime", label: "Anime" },
+	{ id: "trending", label: "Tendances" },
+	{ id: "nollywood", label: "Nollywood" },
+	{ id: "asian", label: "Cinéma asiatique" },
+	{ id: "western", label: "Hollywood" },
+	{ id: "kids", label: "Jeunesse" },
+	{ id: "music", label: "Musique" },
+	{ id: "education", label: "Éducation" },
 ];
 
-// Filtres de droits tels que déclarés par Internet Archive : « free » est appliqué par défaut côté backend.
-const FALLBACK_LICENSES = [
-	{ id: "free", label: "Domaine public & Creative Commons" },
-	{ id: "publicdomain", label: "Domaine public uniquement" },
-	{ id: "cc", label: "Creative Commons (hors domaine public)" },
-	{ id: "all", label: "Toutes les archives (droits non vérifiés)" },
-];
+// La source principale est le service MovieBox local ; les droits sont gérés par la source.
+const FALLBACK_LICENSES = [{ id: "free", label: "Source MovieBox locale" }];
 
 const DEFAULT_LICENSE = "free";
 
@@ -43,7 +36,8 @@ const SORTS = [
 
 const collections = ref(FALLBACK_COLLECTIONS);
 const licenses = ref(FALLBACK_LICENSES);
-const collection = ref(String(router.currentRoute.value.query.collection || "feature_films"));
+const source = ref(String(router.currentRoute.value.query.source || "internal"));
+const collection = ref(String(router.currentRoute.value.query.collection || "home"));
 const license = ref(String(router.currentRoute.value.query.license || DEFAULT_LICENSE));
 const sort = ref("popular");
 const search = ref(String(router.currentRoute.value.query.q || ""));
@@ -57,7 +51,13 @@ const isLoadingMore = ref(false);
 const errorMessage = ref(null);
 
 const activeLicenseLabel = computed(
-	() => licenses.value.find((option) => option.id === license.value)?.label || "Droits déclarés par l'Archive",
+	() => licenses.value.find((option) => option.id === license.value)?.label || "Catalogue MovieBox",
+);
+
+const sourceNote = computed(() =>
+	source.value === "internal"
+		? "Catalogue MovieBox de la source locale : films et séries en streaming direct, sans compte. Les flux sont résolus à la demande."
+		: "Ces films et séries viennent d'Internet Archive et sont filtrés sur les droits déclarés à la source (domaine public ou licence Creative Commons).",
 );
 
 const subtitle = computed(() =>
@@ -71,7 +71,8 @@ let debounce = null;
 const syncQuery = () => {
 	router.replace({
 		query: {
-			...(collection.value !== "feature_films" ? { collection: collection.value } : {}),
+			...(source.value !== "internal" ? { source: source.value } : {}),
+			...(collection.value !== "home" ? { collection: collection.value } : {}),
 			...(license.value !== DEFAULT_LICENSE ? { license: license.value } : {}),
 			...(search.value ? { q: search.value } : {}),
 		},
@@ -90,6 +91,7 @@ const load = async ({ reset }) => {
 	try {
 		const data = await fetchFreeTitles({
 			page: reset ? 1 : page.value + 1,
+			source: source.value,
 			collection: collection.value,
 			license: license.value,
 			sort: sort.value,
@@ -112,7 +114,7 @@ const load = async ({ reset }) => {
 	}
 };
 
-watch([collection, sort, license], () => {
+watch([source, collection, sort, license], () => {
 	syncQuery();
 	load({ reset: true });
 });
@@ -138,17 +140,15 @@ onMounted(() => load({ reset: true }));
 						<AppIcon name="gift" :size="22" />
 					</span>
 					<div>
-						<h1 class="text-2xl font-bold tracking-tight md:text-3xl">Films gratuits</h1>
+						<h1 class="text-2xl font-bold tracking-tight md:text-3xl">
+							{{ source === "internal" ? "Catalogue MovieBox" : "Films gratuits" }}
+						</h1>
 						<p class="text-sm text-white/45">{{ subtitle }}</p>
 					</div>
 				</div>
 
 				<p class="max-w-3xl rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/80">
-					<strong>100 % légal :</strong> ces films et séries viennent d'Internet Archive et sont filtrés sur les
-					droits <em>déclarés à la source</em> (domaine public ou licence Creative Commons) — le filtre
-					« Domaine public &amp; Creative Commons » est actif par défaut. Les œuvres encore protégées sont
-					référencées ailleurs avec leurs bandes-annonces officielles et les plateformes légales, dont les offres
-					gratuites avec publicité.
+					{{ sourceNote }}
 				</p>
 
 				<div class="flex items-center gap-2 rounded-xl border border-inkLine bg-inkCard px-3 py-2.5">

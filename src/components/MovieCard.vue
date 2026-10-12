@@ -23,8 +23,8 @@ const posterUrl = computed(() =>
 
 const favoriteButtonClass = computed(() =>
 	favorite.value
-		? "bg-red-500/20 text-red-600 hover:bg-red-500/30"
-		: "bg-white/20 text-lightestGray hover:bg-white/30 hover:text-red-600"
+		? "bg-brand/20 text-brand hover:bg-brand/30"
+		: "bg-white/20 text-lightestGray hover:bg-white/30 hover:text-brand"
 );
 
 const toggleFavorite = () => {

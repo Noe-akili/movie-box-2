@@ -6,7 +6,7 @@ export default defineConfig({
 	plugins: [vue()],
 	server: {
 		port: 5173,
-		// Toutes les requetes /api sont proxifiees vers le backend Node (dossier server/).
+		// Toutes les requetes /api sont proxifiees vers le backend Rust (dossier server-rust/).
 		proxy: {
 			"/api": {
 				target: process.env.VITE_PROXY_TARGET || "http://localhost:5174",

@@ -12,6 +12,7 @@ const hero = ref([]);
 const rails = ref([]);
 const isLoading = ref(true);
 const errorMessage = ref(null);
+const isPartial = ref(false);
 
 const { history } = useLibrary();
 const settings = useSettings();
@@ -24,6 +25,7 @@ const load = async () => {
 		const data = await fetchHome();
 		hero.value = data.hero || [];
 		rails.value = data.rails || [];
+		isPartial.value = Boolean(data.partial);
 	} catch (error) {
 		errorMessage.value = error.message;
 	} finally {
@@ -38,9 +40,9 @@ watch(() => settings.value.language, load);
 <template>
 	<div class="pb-nav">
 		<HeroCarousel v-if="hero.length" :items="hero" />
-		<div v-else class="skeleton h-[62vh] min-h-[400px] w-full rounded-none"></div>
+		<div v-else class="skeleton h-[78vh] min-h-[520px] w-full rounded-none md:h-[86vh]"></div>
 
-		<div class="mx-auto max-w-[1800px] space-y-8 pt-6 md:space-y-10 md:pt-8">
+		<div class="mx-auto max-w-[1800px] space-y-7 pt-6 md:space-y-9 md:pt-8">
 			<MediaRow
 				v-if="history.length"
 				title="Reprendre la lecture"
@@ -62,6 +64,20 @@ watch(() => settings.value.language, load);
 			</template>
 
 			<template v-else>
+				<p
+					v-if="isPartial && rails.length"
+					class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-inkCard px-4 py-3 text-xs text-white/60 ring-1 ring-white/5"
+				>
+					<span>Certains contenus n'ont pas encore chargé (source un peu lente).</span>
+					<button
+						type="button"
+						class="font-semibold text-brandSoft transition-normal hover:text-white"
+						@click="load"
+					>
+						Recharger
+					</button>
+				</p>
+
 				<MediaRow
 					v-for="(rail, index) in rails"
 					:key="rail.id"

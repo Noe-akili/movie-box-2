@@ -21,9 +21,28 @@ const props = defineProps({
 const { entryFor, start, retry } = useDownloads();
 const isStarting = ref(false);
 
-const sourceId = computed(() => props.item?.archiveId || props.item?.sourceId || null);
+const baseSourceId = computed(() => props.item?.archiveId || props.item?.sourceId || null);
+const isInternal = computed(() => String(baseSourceId.value || "").startsWith("internal:"));
+const sourceId = computed(() => {
+	const base = baseSourceId.value;
+	if (!base) return null;
+	if (isInternal.value && props.episode) {
+		return `${base}:${props.episode.season ?? 0}:${props.episode.number ?? 1}`;
+	}
+	return base;
+});
+const fileName = computed(() => {
+	if (props.stream?.fileName) return props.stream.fileName;
+	const stem =
+		String(props.item?.title || "video")
+			.replace(/[\\/:*?"<>|]/g, " ")
+			.replace(/\s+/g, " ")
+			.trim() || "video";
+	const quality = props.stream?.quality ? ` ${props.stream.quality}` : "";
+	return `${stem}${quality}.mp4`;
+});
 const entry = computed(() =>
-	sourceId.value && props.stream?.name ? entryFor(sourceId.value, props.stream.name) : null,
+	sourceId.value ? entryFor(sourceId.value, fileName.value) : null,
 );
 const isActive = computed(() => ["queued", "downloading"].includes(entry.value?.status));
 const isDone = computed(() => entry.value?.status === "completed");
@@ -32,7 +51,7 @@ const sizeLabel = computed(() => formatSize(props.stream?.size));
 const iconSize = computed(() => (props.compact ? 14 : 18));
 
 const onStart = async () => {
-	if (!sourceId.value || !props.stream?.name) return;
+	if (!sourceId.value) return;
 
 	isStarting.value = true;
 
@@ -43,7 +62,7 @@ const onStart = async () => {
 		} else {
 			await start({
 				sourceId: sourceId.value,
-				fileName: props.stream.name,
+				fileName: fileName.value,
 				title: props.episode ? props.episode.name || props.episode.label : props.item.title,
 				kind: props.episode ? "episode" : "movie",
 				seriesTitle: props.episode ? props.item.title : null,

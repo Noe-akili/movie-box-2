@@ -63,14 +63,14 @@ const routes = [
 		meta: { title: "Mon profil" },
 	},
 	{
-		path: "/title/:mediaType(movie|tv|archive)/:id",
+		path: "/title/:mediaType(movie|tv|archive|internal)/:id",
 		name: "detail",
 		component: DetailPage,
 		props: true,
 		meta: { title: "Détails" },
 	},
 	{
-		path: "/watch/:mediaType(movie|tv|archive)/:id",
+		path: "/watch/:mediaType(movie|tv|archive|internal)/:id",
 		name: "watch",
 		component: WatchPage,
 		props: true,

@@ -1,0 +1,27 @@
+[package]
+name = "movie-box-server"
+version = "1.0.0"
+edition = "2021"
+description = "Backend Movie Box en Rust : catalogue mondial (TMDB), films libres de droits (Internet Archive / Wikimedia Commons) et source interne (moviebox-internal-api)."
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures = "0.3"
+tokio-util = { version = "0.7", features = ["io"] }
+bytes = "1"
+sha1 = "0.11"
+md5 = "0.8"
+mime_guess = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+libc = "0.2"
+http = "1"
+regex = "1"
+serde_urlencoded = "0.7"
+
+[profile.release]
+opt-level = 2

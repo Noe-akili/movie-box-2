@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "npm --prefix server run dev",
+    "dev:api": "cargo run --manifest-path server-rust/Cargo.toml",
     "dev:all": "node scripts/dev.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server/src/index.js",
-    "install:all": "npm install && npm --prefix server install"
+    "start": "cargo run --release --manifest-path server-rust/Cargo.toml",
+    "install:all": "npm install && cargo build --manifest-path server-rust/Cargo.toml"
   },
   "dependencies": {
     "aos": "^3.0.0-beta.6",

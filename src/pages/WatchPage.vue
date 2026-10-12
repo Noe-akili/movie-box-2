@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { downloadStreamUrl, fetchDownload, fetchTitle } from "../api/client";
+import { downloadStreamUrl, fetchDownload, fetchInternalStreams, fetchTitle } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import DownloadButton from "../components/DownloadButton.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -76,10 +76,28 @@ const buildLocalTitle = (entry) => ({
 	externalLinks: [],
 });
 
-const selectEpisode = (index) => {
+const selectEpisode = async (index) => {
 	selectedEpisode.value = index;
 	selectedStream.value = 0;
 	useEmbed.value = false;
+
+	const episode = episodes.value[index];
+	if (
+		props.mediaType === "internal" &&
+		episode &&
+		!(episode.streams && episode.streams.length) &&
+		title.value?.internalId
+	) {
+		try {
+			const data = await fetchInternalStreams(title.value.internalId, {
+				season: episode.season ?? 0,
+				episode: episode.number ?? 1,
+			});
+			episode.streams = data?.streams || [];
+		} catch (error) {
+			toast.error(error.message);
+		}
+	}
 };
 
 const selectEpisodeFromQuery = () => {

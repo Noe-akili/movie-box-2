@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>audit</title>
+	<style>
+		html, body { margin: 0; background: #222; }
+		#stage { position: relative; }
+		iframe { border: 0; display: block; background: #000; }
+	</style>
+</head>
+<body>
+	<div id="stage"></div>
+	<script>
+		const configs = [
+			{ w: 390, h: 844, path: "/", label: "home" },
+			{ w: 390, h: 844, path: "/movies", label: "movies" },
+			{ w: 390, h: 844, path: "/series", label: "series" },
+			{ w: 390, h: 844, path: "/free", label: "free" },
+			{ w: 390, h: 844, path: "/search?q=matrix", label: "search" },
+			{ w: 390, h: 844, path: "/library", label: "library" },
+			{ w: 390, h: 844, path: "/downloads", label: "downloads" },
+			{ w: 390, h: 844, path: "/profile", label: "profile" },
+			{ w: 390, h: 844, path: "/title/movie/603", label: "detail-movie" },
+			{ w: 390, h: 844, path: "/title/tv/1399", label: "detail-tv" },
+		];
+
+		const beacon = (data) => {
+			const img = new Image();
+			img.src = "http://127.0.0.1:8099/log?d=" + encodeURIComponent(JSON.stringify(data));
+		};
+
+		const audit = (frame, label) => {
+			try {
+				const doc = frame.contentDocument;
+				const win = frame.contentWindow;
+				if (!doc || !doc.body || !doc.body.childElementCount) {
+					setTimeout(() => audit(frame, label), 500);
+					return;
+				}
+
+				const vw = win.innerWidth;
+				const html = doc.documentElement;
+				const body = doc.body;
+
+				const clipped = [];
+				const spill = [];
+				const beyondViewport = [];
+				let maxRight = 0;
+
+				for (const el of doc.querySelectorAll("*")) {
+					const cs = win.getComputedStyle(el);
+					const r = el.getBoundingClientRect();
+					if (r.width === 0 && r.height === 0) continue;
+
+					maxRight = Math.max(maxRight, r.right);
+
+					// Content clipped inside a box that hides overflow.
+					const hidesX = cs.overflowX === "hidden" || cs.overflowX === "clip";
+					if (hidesX && el.scrollWidth > el.clientWidth + 2 && el.clientWidth > 0) {
+						clipped.push({
+							tag: el.tagName.toLowerCase(),
+							cls: (el.getAttribute("class") || "").slice(0, 90),
+							clientW: el.clientWidth,
+							scrollW: el.scrollWidth,
+						});
+					}
+
+					// Child spilling out of a parent that does not scroll/clip.
+					const parent = el.parentElement;
+					if (parent && r.width > 0) {
+						const pr = parent.getBoundingClientRect();
+						const pcs = win.getComputedStyle(parent);
+						const parentClips = ["hidden", "auto", "scroll", "clip"].includes(pcs.overflowX);
+						const parentIsRail = parent.classList && parent.classList.contains("rail");
+						if (!parentClips && !parentIsRail && pr.width > 0 && r.right > pr.right + 2) {
+							spill.push({
+								tag: el.tagName.toLowerCase(),
+								cls: (el.getAttribute("class") || "").slice(0, 70),
+								right: Math.round(r.right),
+								parentRight: Math.round(pr.right),
+								parentCls: (parent.getAttribute("class") || "").slice(0, 60),
+							});
+						}
+					}
+
+					// Anything beyond the viewport (even in a rail) — count max only.
+					if (r.right > vw + 1) {
+						beyondViewport.push({
+							tag: el.tagName.toLowerCase(),
+							cls: (el.getAttribute("class") || "").slice(0, 70),
+							right: Math.round(r.right),
+							inRail: Boolean(el.closest(".rail")),
+						});
+					}
+				}
+
+				// Deduplicate spill by class signature.
+				const seen = new Set();
+				const spillUniq = spill.filter((s) => {
+					const key = s.cls;
+					if (seen.has(key)) return false;
+					seen.add(key);
+					return true;
+				});
+
+				beacon({
+					label,
+					vw,
+					docScrollWidth: html.scrollWidth,
+					docClientWidth: html.clientWidth,
+					docOverflow: html.scrollWidth > html.clientWidth + 1,
+					maxRight: Math.round(maxRight),
+					htmlOverflowX: win.getComputedStyle(html).overflowX,
+					bodyOverflowX: win.getComputedStyle(body).overflowX,
+					clippedCount: clipped.length,
+					clipped: clipped.slice(0, 12),
+					spillCount: spill.length,
+					spill: spillUniq.slice(0, 12),
+					beyondViewportCount: beyondViewport.length,
+					beyondViewportNoRail: beyondViewport.filter((b) => !b.inRail).slice(0, 12),
+				});
+			} catch (error) {
+				beacon({ label, error: String(error) });
+			}
+		};
+
+		let index = 0;
+		const next = () => {
+			if (index >= configs.length) {
+				beacon({ done: true });
+				return;
+			}
+			const cfg = configs[index++];
+			const frame = document.createElement("iframe");
+			frame.style.width = cfg.w + "px";
+			frame.style.height = cfg.h + "px";
+			frame.src = cfg.path;
+			document.getElementById("stage").appendChild(frame);
+			frame.addEventListener("load", () => {
+				setTimeout(() => {
+					audit(frame, cfg.label);
+					setTimeout(() => {
+						frame.remove();
+						next();
+					}, 1200);
+				}, 4500);
+			});
+		};
+
+		next();
+	</script>
+</body>
+</html>

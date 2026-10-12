@@ -9,10 +9,12 @@
 		@apply bg-ink antialiased;
 		color-scheme: dark;
 		-webkit-tap-highlight-color: transparent;
+		overflow-x: hidden;
 	}
 
 	body {
 		@apply bg-ink font-dmSans text-white;
+		overflow-x: hidden;
 	}
 
 	::selection {
@@ -20,8 +22,8 @@
 	}
 
 	::-webkit-scrollbar {
-		width: 8px;
-		height: 8px;
+		width: 10px;
+		height: 10px;
 	}
 
 	::-webkit-scrollbar-track {
@@ -29,7 +31,17 @@
 	}
 
 	::-webkit-scrollbar-thumb {
-		@apply rounded-full bg-inkLine;
+		@apply rounded-full bg-white/10;
+		border: 3px solid transparent;
+		background-clip: content-box;
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		@apply bg-white/20;
+	}
+
+	:focus-visible {
+		@apply outline-none ring-2 ring-brand/70 ring-offset-2 ring-offset-ink;
 	}
 }
 
@@ -74,24 +86,52 @@
 
 	/* --- Chips de navigation --- */
 	.chip {
-		@apply shrink-0 whitespace-nowrap rounded-full border border-inkLine bg-inkCard px-4 py-1.5 text-sm font-medium text-white/70 transition-normal hover:border-white/25 hover:text-white;
+		@apply shrink-0 whitespace-nowrap rounded-full border border-inkLine bg-inkCard/80 px-4 py-1.5 text-sm font-medium text-white/70 backdrop-blur transition-normal hover:border-white/25 hover:bg-inkRaised hover:text-white;
 	}
 
 	.chip-active {
-		@apply border-transparent bg-brand-gradient text-white shadow-glow;
+		@apply border-transparent bg-brand-gradient text-white shadow-glowSoft;
+	}
+
+	/* --- Liens de navigation (barre supérieure) --- */
+	.nav-link {
+		@apply relative rounded-lg px-3 py-2 text-sm font-medium text-white/60 transition-normal hover:text-white;
+	}
+
+	.nav-link-active {
+		@apply text-white;
 	}
 
 	/* --- Rails horizontaux --- */
 	.rail {
-		@apply flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 no-scrollbar;
+		@apply flex snap-x snap-mandatory gap-2.5 overflow-x-auto pb-1 no-scrollbar md:gap-3;
+		scroll-padding-inline: 1rem;
 	}
 
 	.rail-item {
 		@apply shrink-0 snap-start;
 	}
 
+	/* Fondu progressif sur les bords d'un rail (effet streaming) */
+	.rail-fade {
+		-webkit-mask-image: linear-gradient(
+			to right,
+			transparent 0,
+			#000 24px,
+			#000 calc(100% - 24px),
+			transparent 100%
+		);
+		mask-image: linear-gradient(
+			to right,
+			transparent 0,
+			#000 24px,
+			#000 calc(100% - 24px),
+			transparent 100%
+		);
+	}
+
 	.section-title {
-		@apply text-base font-semibold tracking-tight text-white sm:text-lg lg:text-xl;
+		@apply text-base font-bold tracking-tight text-white sm:text-lg lg:text-xl;
 	}
 
 	.badge {
@@ -107,7 +147,7 @@
 	}
 
 	.skeleton {
-		@apply animate-shimmer rounded-xl bg-inkCard bg-[linear-gradient(90deg,#16161F_0%,#23232f_50%,#16161F_100%)] bg-[length:500px_100%];
+		@apply animate-shimmer rounded-xl bg-inkCard bg-[linear-gradient(90deg,#1A1B1F_0%,#26282E_50%,#1A1B1F_100%)] bg-[length:500px_100%];
 	}
 
 	/* --- Anciens jetons (composants historiques) --- */
@@ -132,6 +172,17 @@
 
 	.no-scrollbar::-webkit-scrollbar {
 		display: none;
+	}
+
+	.text-shadow-hero {
+		text-shadow:
+			0 2px 24px rgba(0, 0, 0, 0.65),
+			0 1px 3px rgba(0, 0, 0, 0.85);
+	}
+
+	.bg-noise {
+		background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 0);
+		background-size: 3px 3px;
 	}
 
 	.line-clamp-1 {
@@ -172,5 +223,63 @@
 
 	.pb-safe {
 		padding-bottom: env(safe-area-inset-bottom);
+	}
+}
+
+/* --- Transitions entre les onglets / pages (hors @layer : jamais purged) --- */
+.tab-left-enter-active,
+.tab-left-leave-active,
+.tab-right-enter-active,
+.tab-right-leave-active,
+.fade-up-enter-active,
+.fade-up-leave-active {
+	transition:
+		opacity 0.22s ease,
+		transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+	will-change: opacity, transform;
+}
+
+.tab-left-enter-from {
+	opacity: 0;
+	transform: translateX(14%);
+}
+.tab-left-leave-to {
+	opacity: 0;
+	transform: translateX(-14%);
+}
+.tab-right-enter-from {
+	opacity: 0;
+	transform: translateX(-14%);
+}
+.tab-right-leave-to {
+	opacity: 0;
+	transform: translateX(14%);
+}
+
+.fade-up-enter-from {
+	opacity: 0;
+	transform: translateY(10px);
+}
+.fade-up-leave-to {
+	opacity: 0;
+	transform: translateY(-6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.tab-left-enter-active,
+	.tab-left-leave-active,
+	.tab-right-enter-active,
+	.tab-right-leave-active,
+	.fade-up-enter-active,
+	.fade-up-leave-active {
+		transition: opacity 0.15s ease;
+	}
+	.tab-left-enter-from,
+	.tab-left-leave-to,
+	.tab-right-enter-from,
+	.tab-right-leave-to,
+	.fade-up-enter-from,
+	.fade-up-leave-to {
+		transform: none;
 	}
 }

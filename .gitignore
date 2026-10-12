@@ -12,12 +12,12 @@ dist
 dist-ssr
 *.local
 
-# Backend
-server/.env
-server/node_modules
+# Backend Rust
+server-rust/target
+server-rust/.env
 
 # Fichiers telecharges par le backend (volumineux, propres a la machine)
-server/downloads
+server-rust/downloads
 
 # Editor directories and files
 .vscode/*
@@ -29,6 +29,12 @@ server/downloads
 *.njsproj
 *.sln
 *.sw?
+
+# Source MovieBox Python (environnement local, cache et registre d'items)
+.venv312
+__pycache__/
+*.py[cod]
+._source_items.pkl
 
 #personal
 /design

@@ -36,9 +36,12 @@ const mainChips = computed(() => {
 	const item = title.value;
 	if (!item) return [];
 
+	// `seasons` peut etre un compte (TMDB) ou le tableau des saisons : ne jamais concatener le tableau.
+	const seasonCount = Array.isArray(item.seasons) ? item.seasons.length : item.seasons;
+
 	return [
 		item.year ? String(item.year) : null,
-		item.mediaType === "tv" && item.seasons ? `${item.seasons} saison${item.seasons > 1 ? "s" : ""}` : formatRuntime(item.runtime),
+		item.mediaType === "tv" && seasonCount ? `${seasonCount} saison${seasonCount > 1 ? "s" : ""}` : formatRuntime(item.runtime),
 		item.ageRating ? `-${item.ageRating}` : null,
 		item.rating ? `★ ${item.rating.toFixed(1)}${item.votes ? ` (${formatCount(item.votes)})` : ""}` : null,
 	].filter(Boolean);
@@ -157,6 +160,7 @@ watch(
 					class="absolute inset-0 -z-10 h-[62%] bg-cover bg-center"
 					:style="title.backdrop ? { backgroundImage: `url(${title.backdrop})` } : {}"
 				>
+					<div class="h-full w-full bg-hero-gradient"></div>
 					<div class="h-full w-full bg-hero-scrim"></div>
 				</div>
 

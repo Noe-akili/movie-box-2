@@ -1,0 +1,137 @@
+
+> movie-box@1.0.0 dev:all
+> node scripts/dev.mjs
+
+
+Movie Box : source http://127.0.0.1:8000 + API (http://localhost:5174) + interface (http://localhost:5173)
+
+[front]   VITE v4.5.14  ready in 2533 ms
+[front]   ➜  Local:   http://localhost:5173/
+[front]   ➜  Network: use --host to expose
+[src  ]  * Serving Flask app 'source_server'
+[src  ]  * Debug mode: off
+[src  ] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+[src  ]  * Running on all addresses (0.0.0.0)
+[src  ]  * Running on http://127.0.0.1:8000
+[src  ]  * Running on http://10.206.215.223:8000
+[src  ] [33mPress CTRL+C to quit[0m
+[api  ] warning: unused import: `axum::response::IntoResponse`
+[api  ]  --> src/routes/api.rs:8:5
+[api  ]   |
+[api  ] 8 | use axum::response::IntoResponse;
+[api  ]   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[api  ]   |
+[api  ]   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+[api  ] warning: unused import: `Query`
+[api  ]  --> src/routes/downloads.rs:3:27
+[api  ]   |
+[api  ] 3 | use axum::extract::{Path, Query};
+[api  ]   |                           ^^^^^
+[api  ] warning: unused import: `IntoResponse`
+[api  ]  --> src/routes/downloads.rs:5:22
+[api  ]   |
+[api  ] 5 | use axum::response::{IntoResponse, Response};
+[api  ]   |                      ^^^^^^^^^^^^
+[api  ] warning: unused import: `delete`
+[api  ]  --> src/routes/downloads.rs:6:21
+[api  ]   |
+[api  ] 6 | use axum::routing::{delete, get, post};
+[api  ]   |                     ^^^^^^
+[api  ] warning: unused import: `std::collections::HashMap`
+[api  ]  --> src/routes/downloads.rs:9:5
+[api  ]   |
+[api  ] 9 | use std::collections::HashMap;
+[api  ]   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+[api  ] warning: unused import: `is_playable_file`
+[api  ]   --> src/routes/downloads.rs:13:16
+[api  ]    |
+[api  ] 13 |     file_path_of, is_playable_file, manager, mime_for_file, public_entry,
+[api  ]    |                   ^^^^^^^^^^^^^^^^
+[api  ] warning: unused imports: `HeaderName` and `HeaderValue`
+[api  ]  --> src/routes/internal.rs:4:26
+[api  ]   |
+[api  ] 4 | use axum::http::{header, HeaderName, HeaderValue, StatusCode};
+[api  ]   |                          ^^^^^^^^^^  ^^^^^^^^^^^
+[api  ] warning: unused import: `IntoResponse`
+[api  ]  --> src/routes/internal.rs:5:22
+[api  ]   |
+[api  ] 5 | use axum::response::{IntoResponse, Response};
+[api  ]   |                      ^^^^^^^^^^^^
+[api  ] warning: unused import: `ApiError`
+[api  ]   --> src/services/archive.rs:10:20
+[api  ]    |
+[api  ] 10 | use crate::error::{ApiError, Result};
+[api  ]    |                    ^^^^^^^^
+[api  ] warning: unused imports: `first_value` and `is_truthy`
+[api  ]   --> src/services/commons.rs:16:22
+[api  ]    |
+[api  ] 16 | use super::archive::{first_value, first_value_str, is_truthy, strip_html};
+[api  ]    |                      ^^^^^^^^^^^                   ^^^^^^^^^
+[api  ] warning: unused import: `first_value_str`
+[api  ]   --> src/services/internal.rs:16:22
+[api  ]    |
+[api  ] 16 | use super::archive::{first_value_str, strip_html};
+[api  ]    |                      ^^^^^^^^^^^^^^^
+[api  ] warning: unused import: `credits_from_response`
+[api  ]   --> src/services/internal.rs:18:19
+[api  ]    |
+[api  ] 18 | use super::tmdb::{credits_from_response, round1};
+[api  ]    |                   ^^^^^^^^^^^^^^^^^^^^^
+[api  ] warning: unused import: `std::time::Duration`
+[api  ]   --> src/main.rs:17:5
+[api  ]    |
+[api  ] 17 | use std::time::Duration;
+[api  ]    |     ^^^^^^^^^^^^^^^^^^^
+[api  ] warning: value assigned to `last_error` is never read
+[api  ]    --> src/http.rs:56:41
+[api  ]     |
+[api  ]  56 |     let mut last_error: Option<ApiError> = None;
+[api  ]     |                                            ^^^^ this value is reassigned later and never used
+[api  ] ...
+[api  ] 106 |                         last_error = Some(ApiError::new(
+[api  ]     |                         ---------- `last_error` is overwritten here before the previous value is read
+[api  ]     |
+[api  ]     = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+[api  ] warning: fields `root_dir` and `allowed_origins` are never read
+[api  ]   --> src/config.rs:28:6
+[api  ]    |
+[api  ] 27 | pub struct Config {
+[api  ]    |            ------ fields in this struct
+[api  ] 28 |     pub root_dir: PathBuf,
+[api  ]    |         ^^^^^^^^
+[api  ] ...
+[api  ] 38 |     pub allowed_origins: Vec<String>,
+[api  ]    |         ^^^^^^^^^^^^^^^
+[api  ]    |
+[api  ]    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+[api  ] warning: constant `DEFAULT_TIMEOUT_MS` is never used
+[api  ]  --> src/http.rs:9:7
+[api  ]   |
+[api  ] 9 | const DEFAULT_TIMEOUT_MS: u64 = 12_000;
+[api  ]   |       ^^^^^^^^^^^^^^^^^^
+[api  ] warning: function `get_related_archive` is never used
+[api  ]    --> src/services/archive.rs:831:14
+[api  ]     |
+[api  ] 831 | pub async fn get_related_archive(identifier: &str, collection: &str, rows: i64) -> Result<Value> {
+[api  ]     |              ^^^^^^^^^^^^^^^^^^^
+[api  ] warning: static `HTML_TAG` is never used
+[api  ]   --> src/services/commons.rs:29:8
+[api  ]    |
+[api  ] 29 | static HTML_TAG: LazyLock<regex::Regex> =
+[api  ]    |        ^^^^^^^^
+[api  ] warning: function `is_commons_source` is never used
+[api  ]   --> src/services/free.rs:50:8
+[api  ]    |
+[api  ] 50 | pub fn is_commons_source(source: &str) -> bool {
+[api  ]    |        ^^^^^^^^^^^^^^^^^
+[api  ] warning: function `collection_exists` is never used
+[api  ]   --> src/services/free.rs:84:8
+[api  ]    |
+[api  ] 84 | pub fn collection_exists(source: &str, collection: &str) -> bool {
+[api  ]    |        ^^^^^^^^^^^^^^^^^
+[api  ] warning: `movie-box-server` (bin "movie-box-server") generated 20 warnings (run `cargo fix --bin "movie-box-server" -p movie-box-server` to apply 13 suggestions)
+[api  ]     Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.27s
+[api  ]      Running `server-rust/target/debug/movie-box-server`
+[api  ] [movie-box] écoute sur http://0.0.0.0:5174
+[front] (node:11342) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+[front] (Use `node --trace-deprecation ...` to show where the warning was created)

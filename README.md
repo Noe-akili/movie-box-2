@@ -1,6 +1,6 @@
 # 🎬 Movie Box
 
-Application **web complète** (frontend Vue 3 + backend Node.js) dans le style de l'application
+Application **web complète** (frontend Vue 3 + backend Rust / Axum) dans le style de l'application
 MovieBox : catalogue mondial de films, séries et animés, **lecture gratuite des films libres de
 droits**, bandes-annonces officielles et orientation vers les offres légales gratuites.
 
@@ -28,16 +28,18 @@ movie-box-2/
 │   ├── pages/                 # Home, Browse (films/séries), Free, Search, Detail, Watch, Library, Downloads, Profile
 │   ├── stores/                # settings, library (favoris/historique), downloads (progression), recentSearches, toast, loading
 │   └── util/                  # formatage (durées, tailles, débits, dates), routage des médias
-├── server/                    # BACKEND (Node.js + Express) → voir server/README.md
+├── server-rust/               # BACKEND (Rust + Axum)
 │   ├── downloads/             # fichiers téléchargés + manifest.json (non versionné)
 │   └── src/
-│       ├── routes/api.js      # /api/home, /api/search, /api/discover, /api/free, /api/title…
-│       ├── routes/downloads.js# /api/downloads (lancer, suivre, lire, supprimer)
-│       ├── services/tmdb.js   # catalogue mondial (cache mémoire + repli anglais)
-│       ├── services/archive.js# films et séries libres de droits (Internet Archive) + détection des épisodes
-│       ├── services/downloads.js # stockage local, progression, reprise (HTTP Range), file d'attente
-│       └── services/providers.js # plateformes légales (dont offres gratuites)
-├── scripts/dev.mjs            # npm run dev:all (API + front en une seule commande)
+│       ├── routes/api.rs      # /api/home, /api/search, /api/discover, /api/free, /api/title…
+│       ├── routes/downloads.rs# /api/downloads (lancer, suivre, lire, supprimer)
+│       ├── services/tmdb.rs   # catalogue mondial (cache mémoire + repli anglais)
+│       ├── services/archive.rs# films et séries libres de droits (Internet Archive) + détection des épisodes
+│       ├── services/commons.rs# films libres (Wikimedia Commons)
+│       ├── services/internal.rs # source moviebox-internal-api
+│       ├── services/downloads.rs # stockage local, progression, reprise (HTTP Range), file d'attente
+│       └── services/providers.rs # plateformes légales (dont offres gratuites)
+├── scripts/dev.mjs            # npm run dev:all (API Rust + front en une seule commande)
 └── design/                    # captures de référence (non versionné)
 ```
 
@@ -60,11 +62,11 @@ npm run dev        # frontend seul (proxy /api → http://localhost:5174)
 npm run dev:api    # backend seul
 ```
 
-Mise en production (l'API Node sert aussi l'interface compilée) :
+Mise en production (l'API Rust sert aussi l'interface compilée) :
 
 ```bash
 npm run build      # génère dist/
-npm start          # http://localhost:5174  (interface + API)
+npm start          # cargo run --release (http://localhost:5174, interface + API)
 ```
 
 Variables d'environnement (fichier `.env` à la racine) :
@@ -72,16 +74,16 @@ Variables d'environnement (fichier `.env` à la racine) :
 | Variable | Défaut | Rôle |
 | --- | --- | --- |
 | `TMDB_API_KEY` / `VITE_API_KEY` | — | clé TMDB (obligatoire pour le catalogue) |
-| `PORT` | `5174` | port du serveur Node |
+| `PORT` | `5174` | port du serveur Rust |
 | `WATCH_REGION` | `FR` | région par défaut des offres légales |
 | `ALLOWED_ORIGINS` | `*` | origines CORS autorisées |
 | `RATE_LIMIT_MAX` | `240` | requêtes par minute et par IP |
-| `DOWNLOADS_DIR` | `server/downloads` | dossier de stockage des fichiers téléchargés |
+| `DOWNLOADS_DIR` | `server-rust/downloads` | dossier de stockage des fichiers téléchargés |
 | `DOWNLOAD_CONCURRENCY` | `2` | téléchargements simultanés (1 à 4) |
 | `DOWNLOAD_MAX_BYTES` | `8589934592` (8 Go) | taille maximale d'un fichier téléchargeable |
 | `DOWNLOAD_MAX_QUEUE` | `60` | nombre maximal de téléchargements conservés |
 
-## 🔌 API (backend Node.js)
+## 🔌 API (backend Rust)
 
 | Route | Description |
 | --- | --- |
@@ -108,11 +110,11 @@ Variables d'environnement (fichier `.env` à la racine) :
 1. Sur la fiche ou la page de lecture d'une œuvre **libre de droits** (film ou série Internet Archive),
    le bouton « Télécharger » envoie au backend l'identifiant d'archive et le **nom exact du fichier vidéo**.
 2. Le backend vérifie ce couple contre les métadonnées Internet Archive (aucune URL cliente n'est acceptée),
-   applique la limite de taille puis télécharge le fichier dans `server/downloads/` dans une file limitée
+   applique la limite de taille puis télécharge le fichier dans `server-rust/downloads/` dans une file limitée
    (2 transferts simultanés par défaut).
 3. La progression (octets reçus, pourcentage, débit, temps restant) est exposée par `GET /api/downloads` ;
    l'onglet **Téléchargements** la rafraîchit toutes les 1,2 s et affiche un badge dans la barre de navigation.
-4. Un manifeste (`server/downloads/manifest.json`) + un fichier `.part` permettent de **reprendre** un transfert
+4. Un manifeste (`server-rust/downloads/manifest.json`) + un fichier `.part` permettent de **reprendre** un transfert
    interrompu (même après un redémarrage du serveur) grâce aux requêtes `Range`.
 5. Un fichier terminé se lit **hors ligne** dans le lecteur intégré (`/watch/local/:id`) ou s'enregistre sur
    l'appareil (`GET /api/downloads/:id/file`).
@@ -130,7 +132,7 @@ Movie Box **n'héberge ni ne diffuse d'œuvre protégée par le droit d'auteur**
    fournis légalement par Internet Archive, avec le lecteur intégré ;
 3. **oriente** vers les plateformes officielles pour les œuvres protégées, en priorisant les offres
    **gratuites financées par la publicité** (Pluto TV, Tubi, Plex, ARTE, JustWatch…) ;
-4. **peut stocker localement** (dossier `server/downloads/`) ces mêmes œuvres libres de droits, à la demande de
+4. **peut stocker localement** (dossier `server-rust/downloads/`) ces mêmes œuvres libres de droits, à la demande de
    l'utilisateur, pour une lecture hors ligne. Aucune œuvre protégée n'est jamais téléchargée ni relayée ;
 5. **filtre les droits à la source** : le catalogue gratuit interroge Internet Archive avec une clause sur
    `licenseurl` (domaine public ou licence Creative Commons), actif par défaut et affiché sur chaque fiche,
