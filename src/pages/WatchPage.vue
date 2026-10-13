@@ -9,7 +9,7 @@ import MediaRow from "../components/MediaRow.vue";
 import { useLibrary } from "../stores/library";
 import { toast } from "../stores/toast";
 import { formatCount, formatSize } from "../util/format";
-import { isFree } from "../util/media";
+import { isFree, isSeriesTitle, mediaTypeLabel } from "../util/media";
 
 const props = defineProps({
 	mediaType: { type: String, required: true },
@@ -28,7 +28,7 @@ const selectedEpisode = ref(0);
 const useEmbed = ref(false);
 
 // Une archive peut contenir plusieurs episodes : on bascule de l'un a l'autre.
-const episodes = computed(() => title.value?.episodes || []);
+const episodes = computed(() => (Array.isArray(title.value?.episodes) ? title.value.episodes : []));
 const isSeries = computed(() => episodes.value.length > 1);
 const currentEpisode = computed(() => (isSeries.value ? episodes.value[selectedEpisode.value] || null : null));
 const streams = computed(() => {
@@ -308,7 +308,7 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 							{{
 								[
 									title.year,
-									title.mediaType === "tv" ? "Série" : title.mediaType === "archive" ? "Film libre de droits" : "Film",
+									isSeriesTitle(title) ? "Série" : free ? "Film libre de droits" : mediaTypeLabel(title),
 								]
 									.filter(Boolean)
 									.join(" • ")

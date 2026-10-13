@@ -1,9 +1,15 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { fetchInternalStreams } from "../api/client";
 import { useDownloads } from "../stores/downloads";
 import { toast } from "../stores/toast";
-import { downloadFileName, downloadSourceId, isInternalSource } from "../util/downloads";
+import {
+	downloadFileName,
+	downloadSourceId,
+	isInternalSource,
+	pickQualityStream,
+	qualityHeight,
+} from "../util/downloads";
 import { formatSize } from "../util/format";
 import AppIcon from "./AppIcon.vue";
 
@@ -30,8 +36,24 @@ const internalId = computed(
 );
 const itemTitle = computed(() => props.item?.title || "Vidéo");
 
-const episodes = computed(() => props.item?.episodes || []);
-const isSeries = computed(() => episodes.value.length > 1 || props.item?.kind === "series");
+// `episodes` est un tableau sur une fiche complète, mais un simple compte sur les
+// cartes du catalogue : on ne garde que le cas exploitable par l'assistant.
+const episodes = computed(() => (Array.isArray(props.item?.episodes) ? props.item.episodes : []));
+
+// Type réel du titre, déduit des données de l'API (kind, épisodes, mediaType) :
+// une série gratuite ne doit jamais être prise pour un film.
+const isSeries = computed(
+	() =>
+		episodes.value.length > 0 ||
+		props.item?.kind === "series" ||
+		props.item?.mediaType === "tv" ||
+		Boolean(props.episode),
+);
+
+// Assistant saison/épisodes seulement si des épisodes sont réellement listés :
+// sinon on retombe sur le téléchargement direct du flux du titre (cas d'une série
+// dont l'API n'a pas encore renvoyé sa liste d'épisodes).
+const effectiveSeries = computed(() => isSeries.value && seasons.value.length > 0);
 
 const seasons = computed(() => {
 	const list = [];
@@ -52,12 +74,9 @@ const isWorking = ref(false);
 
 const keyOf = (episode) => `${episode.season ?? 1}:${episode.number ?? 1}`;
 
-const qualityMatches = (stream) =>
-	String(stream?.quality || "").toLowerCase() === String(selectedQuality.value || "").toLowerCase();
-
 const movieStream = computed(() => {
 	const list = props.item?.streams || [];
-	return list.find(qualityMatches) || list[0] || props.stream || null;
+	return pickQualityStream(list, selectedQuality.value) || props.stream || null;
 });
 
 const seasonEpisodes = computed(() =>
@@ -65,11 +84,15 @@ const seasonEpisodes = computed(() =>
 		.filter((episode) => (episode.season ?? 1) === selectedSeason.value)
 		.map((episode) => {
 			const list = episode.streams || [];
-			const match = list.find(qualityMatches) || null;
+			// Qualité exacte si disponible, sinon la plus proche : certains épisodes
+			// (saisons récentes) n'existent qu'en 480p.
+			const stream = pickQualityStream(list, selectedQuality.value);
 			return {
 				episode,
-				stream: match || list[0] || null,
-				available: isInternal.value ? true : Boolean(match),
+				stream,
+				// Source interne : l'API fournit les flux épisode par épisode, on les
+				// résout au moment du téléchargement.
+				available: isInternal.value ? true : Boolean(stream),
 			};
 		}),
 );
@@ -80,7 +103,13 @@ const allSelected = computed(
 	() => availableEpisodes.value.length > 0 && selectedCount.value === availableEpisodes.value.length,
 );
 
-const loadQualities = async () => {
+/**
+ * Qualites reellement proposees. L'API MovieBox ne fournit pas les memes qualites
+ * pour toutes les saisons (la saison 8 de The Rookie n'existe qu'en 480p) : on
+ * interroge donc un episode de la saison affichee plutot que de se fier au seul
+ * premier episode de la fiche.
+ */
+const loadQualities = async (season = null) => {
 	isLoadingQuality.value = true;
 
 	try {
@@ -90,25 +119,40 @@ const loadQualities = async () => {
 			if (value && !list.includes(value)) list.push(value);
 		};
 
-		if (isSeries.value) {
-			for (const episode of episodes.value) for (const stream of episode.streams || []) push(stream.quality);
-		}
 		for (const stream of props.item?.streams || []) push(stream.quality);
 		if (props.stream?.quality) push(props.stream.quality);
 
-		if (!list.length && isInternal.value && episodes.value.length) {
-			const first = episodes.value[0];
-			const data = await fetchInternalStreams(internalId.value, {
-				season: first.season ?? 1,
-				episode: first.number ?? 1,
-			});
-			for (const stream of data?.streams || []) push(stream.quality);
+		if (isSeries.value) {
+			const pool = season
+				? episodes.value.filter((episode) => (episode.season ?? 1) === season)
+				: episodes.value;
+			for (const episode of pool) for (const stream of episode.streams || []) push(stream.quality);
+
+			// Les episodes arrivent sans flux : on demande ceux d'un episode temoin.
+			if (isInternal.value && internalId.value) {
+				const sample = pool[0] || episodes.value[0];
+				if (sample) {
+					try {
+						const data = await fetchInternalStreams(internalId.value, {
+							season: sample.season ?? 1,
+							episode: sample.number ?? 1,
+						});
+						for (const stream of data?.streams || []) push(stream.quality);
+					} catch {
+						// API indisponible pour cet episode : on garde les qualites connues.
+					}
+				}
+			}
 		}
 
 		if (!list.length) list.push("Auto");
+		list.sort((a, b) => (qualityHeight(a) ?? 0) - (qualityHeight(b) ?? 0));
+
+		const previous = selectedQuality.value;
 		qualityOptions.value = list;
+		// On conserve le choix de l'utilisateur s'il existe encore dans cette saison.
 		selectedQuality.value =
-			props.stream?.quality && list.includes(props.stream.quality) ? props.stream.quality : list[0];
+			previous && list.includes(previous) ? previous : list[list.length - 1];
 	} catch {
 		qualityOptions.value = props.stream?.quality ? [props.stream.quality] : ["Auto"];
 		selectedQuality.value = qualityOptions.value[0];
@@ -152,7 +196,7 @@ const resolveInternalStream = async (episode) => {
 			episode: episode.number ?? 1,
 		});
 		const list = data?.streams || [];
-		return list.find(qualityMatches) || list[0] || null;
+		return pickQualityStream(list, selectedQuality.value);
 	} catch {
 		return null;
 	}
@@ -197,8 +241,11 @@ const downloadEpisodes = async () => {
 		const quality = selectedQuality.value;
 		let stream = entry.stream;
 
-		if (isInternal.value && (!stream || !qualityMatches(stream))) {
-			stream = await resolveInternalStream(episode);
+		// Source interne : chaque épisode a ses propres flux (URL signées qui
+		// expirent) — on les résout au moment du téléchargement.
+		if (isInternal.value) {
+			const resolved = await resolveInternalStream(episode);
+			if (resolved) stream = resolved;
 		}
 
 		const fileName = downloadFileName(props.item, stream, { episode, quality });
@@ -227,7 +274,7 @@ const onPrimary = async () => {
 	if (isWorking.value) return;
 
 	// Séries : qualité + saison, puis « Avancer » vers la sélection des épisodes.
-	if (isSeries.value && step.value !== "episodes") {
+	if (effectiveSeries.value && step.value !== "episodes") {
 		goToEpisodes();
 		return;
 	}
@@ -235,7 +282,7 @@ const onPrimary = async () => {
 	isWorking.value = true;
 
 	try {
-		if (isSeries.value) {
+		if (effectiveSeries.value) {
 			await downloadEpisodes();
 			toast.success(
 				`${selectedCount.value} épisode${selectedCount.value > 1 ? "s" : ""} en téléchargement — ${itemTitle.value}`,
@@ -253,8 +300,8 @@ const onPrimary = async () => {
 };
 
 const primaryLabel = computed(() => {
-	if (isSeries.value && step.value !== "episodes") return "Avancer";
-	if (isSeries.value) return `Télécharger (${selectedCount.value})`;
+	if (effectiveSeries.value && step.value !== "episodes") return "Avancer";
+	if (effectiveSeries.value) return `Télécharger (${selectedCount.value})`;
 	return props.label;
 });
 
@@ -262,16 +309,22 @@ const onKeydown = (event) => {
 	if (event.key === "Escape") close();
 };
 
+// Changer de saison change les qualités disponibles : on les relit pour la
+// saison affichée (une saison récente peut n'exister qu'en 480p).
+watch(selectedSeason, (season) => {
+	if (effectiveSeries.value && season) loadQualities(season);
+});
+
 onMounted(async () => {
 	document.body.style.overflow = "hidden";
 	window.addEventListener("keydown", onKeydown);
 
-	await loadQualities();
-
-	if (isSeries.value) {
+	if (effectiveSeries.value) {
 		selectedSeason.value = props.episode?.season ?? seasons.value[0] ?? 1;
 		if (props.episode) selectedKeys.value = [keyOf(props.episode)];
 	}
+
+	await loadQualities(selectedSeason.value);
 });
 
 onBeforeUnmount(() => {
@@ -315,10 +368,10 @@ onBeforeUnmount(() => {
 						:class="step === 'choose' ? 'bg-brand/20 text-brandSoft' : 'bg-white/5 text-white/45'"
 						@click="step = 'choose'"
 					>
-						{{ isSeries ? "1 · Qualité & saison" : "1 · Qualité" }}
+						{{ effectiveSeries ? "1 · Qualité & saison" : "1 · Qualité" }}
 					</button>
 					<button
-						v-if="isSeries"
+						v-if="effectiveSeries"
 						type="button"
 						class="rounded-full px-3 py-1 transition-normal"
 						:class="step === 'episodes' ? 'bg-brand/20 text-brandSoft' : 'bg-white/5 text-white/45'"
@@ -337,7 +390,7 @@ onBeforeUnmount(() => {
 					<template v-else-if="step === 'choose'">
 						<p class="mb-3 text-xs text-white/45">
 							{{
-								isSeries
+								effectiveSeries
 									? "Choisis la qualité et la saison, puis touche « Avancer »."
 									: "Choisis la qualité de la vidéo à enregistrer."
 							}}
@@ -367,13 +420,13 @@ onBeforeUnmount(() => {
 									<span class="text-sm font-semibold text-white">{{ quality }}</span>
 								</span>
 								<span class="flex items-center gap-2 text-[11px] text-white/40">
-									<span v-if="!isSeries && movieStream?.size">{{ formatSize(movieStream.size) }}</span>
+									<span v-if="!effectiveSeries && movieStream?.size">{{ formatSize(movieStream.size) }}</span>
 									<AppIcon v-if="selectedQuality === quality" name="check" :size="16" class="text-brandSoft" />
 								</span>
 							</button>
 						</div>
 
-						<template v-if="isSeries">
+						<template v-if="effectiveSeries">
 							<p class="mb-2 mt-4 text-[11px] font-semibold uppercase tracking-wider text-white/35">Saison</p>
 							<div class="rail -mx-1 px-1">
 								<button
@@ -471,7 +524,7 @@ onBeforeUnmount(() => {
 						@click="onPrimary"
 					>
 						<AppIcon
-							:name="isSeries && step !== 'episodes' ? 'chevronRight' : 'download'"
+							:name="effectiveSeries && step !== 'episodes' ? 'chevronRight' : 'download'"
 							:size="16"
 						/>
 						<span>{{ isWorking ? "Démarrage…" : primaryLabel }}</span>

@@ -22,4 +22,43 @@ export const isFree = (item) =>
 	item?.source === "archive" ||
 	item?.source === "internal";
 
-export const qualityLabel = (item) => (isFree(item) ? "GRATUIT" : item.badge || (item.mediaType === "tv" ? "SÉRIE" : "FILM"));
+
+/**
+ * Type réel du titre, déduit des données fournies par l'API (pas seulement de
+ * `mediaType`) : le backend Movie Box envoie `kind: "movie" | "series"` sur la
+ * fiche, les cartes de séries internes portent un compte de saisons, et une
+ * archive libre regroupe ses fichiers en `episodes`. On croise ces trois
+ * signaux pour ne jamais confondre une série gratuite avec un film.
+ */
+export const isSeriesTitle = (item) => {
+	if (!item) return false;
+
+	const kind = String(item.kind || "").toLowerCase();
+	if (kind === "series") return true;
+	if (kind === "movie") return false;
+
+	if (item.mediaType === "tv") return true;
+
+	const episodes = Array.isArray(item.episodes) ? item.episodes.length : Number(item.episodes) || 0;
+	if (episodes > 1) return true;
+
+	const seasons = Array.isArray(item.seasons) ? item.seasons.length : Number(item.seasons) || 0;
+	return seasons > 1;
+};
+
+/** Libellé court du type (badge des affiches et de l'en-tête). */
+export const mediaTypeLabel = (item) => {
+	if (isFree(item)) {
+		return isSeriesTitle(item) ? "SÉRIE" : "FILM";
+	}
+	return item.mediaType === "tv" ? "SÉRIE" : item.badge || "FILM";
+};
+
+/** Nombre de saisons quand il est connu (TMDB : tableau ou compte). */
+export const seasonCountOf = (item) => {
+	const value = Array.isArray(item?.seasons) ? item.seasons.length : Number(item?.seasons);
+	return Number.isFinite(value) && value > 0 ? value : null;
+};
+
+export const qualityLabel = (item) => (isFree(item) ? "GRATUIT" : item.badge || mediaTypeLabel(item));
+

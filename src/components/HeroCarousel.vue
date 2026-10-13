@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppIcon from "./AppIcon.vue";
-import { detailRoute, isFree, watchRoute } from "../util/media";
+import { detailRoute, isFree, isSeriesTitle, mediaTypeLabel, seasonCountOf, watchRoute } from "../util/media";
 import { formatRuntime } from "../util/format";
 import { useLibrary } from "../stores/library";
 import { toast } from "../stores/toast";
@@ -20,13 +20,15 @@ const meta = computed(() => {
 	const item = active.value;
 	if (!item) return [];
 
-	// `seasons` peut etre un compte (TMDB) ou le tableau des saisons : ne jamais concatener le tableau.
-	const seasonCount = Array.isArray(item.seasons) ? item.seasons.length : item.seasons;
+	// Type réel (film / série) + nombre de saisons : `seasons` peut être un compte
+	// (TMDB) ou le tableau des saisons, d'où le passage par seasonCountOf.
+	const series = isSeriesTitle(item);
+	const seasonCount = seasonCountOf(item);
 
 	return [
-		item.mediaType === "archive" ? "GRATUIT" : item.mediaType === "tv" ? "SÉRIE" : "FILM",
+		isFree(item) ? "GRATUIT" : mediaTypeLabel(item),
 		item.year,
-		item.mediaType === "tv" && seasonCount ? `${seasonCount} saison${seasonCount > 1 ? "s" : ""}` : formatRuntime(item.runtime),
+		series && seasonCount ? `${seasonCount} saison${seasonCount > 1 ? "s" : ""}` : formatRuntime(item.runtime),
 		item.rating ? `★ ${item.rating.toFixed(1)}` : null,
 	].filter(Boolean);
 });

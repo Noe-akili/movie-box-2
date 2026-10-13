@@ -10,7 +10,7 @@ import { useLibrary } from "../stores/library";
 import { useSettings } from "../stores/settings";
 import { toast } from "../stores/toast";
 import { formatCount, formatDate, formatRuntime, formatSize } from "../util/format";
-import { isFree, watchRoute } from "../util/media";
+import { isFree, isSeriesTitle, mediaTypeLabel, seasonCountOf, watchRoute } from "../util/media";
 
 const props = defineProps({
 	mediaType: { type: String, required: true },
@@ -29,19 +29,27 @@ const isLoadingEpisodes = ref(false);
 
 const free = computed(() => isFree(title.value));
 const saved = computed(() => (title.value ? isFavorite(title.value) : false));
-// Une archive libre de droits peut contenir toute une série : chaque fichier devient un episode.
-const archiveEpisodes = computed(() => (title.value?.episodes?.length > 1 ? title.value.episodes : []));
+const isSeries = computed(() => isSeriesTitle(title.value));
+// Une archive libre de droits (ou un titre interne) peut contenir toute une série :
+// chaque fichier devient un épisode. On s'appuie sur `kind`/`episodes` réels de l'API
+// pour ne jamais masquer la section à cause d'un seul épisode détecté.
+const archiveEpisodes = computed(() => {
+	// `episodes` peut être un compte sur certaines sources : seul le tableau compte.
+	const list = Array.isArray(title.value?.episodes) ? title.value.episodes : [];
+	if (list.length > 1) return list;
+	return list.length === 1 && isSeries.value ? list : [];
+});
 
 const mainChips = computed(() => {
 	const item = title.value;
 	if (!item) return [];
 
 	// `seasons` peut etre un compte (TMDB) ou le tableau des saisons : ne jamais concatener le tableau.
-	const seasonCount = Array.isArray(item.seasons) ? item.seasons.length : item.seasons;
+	const seasonCount = seasonCountOf(item);
 
 	return [
 		item.year ? String(item.year) : null,
-		item.mediaType === "tv" && seasonCount ? `${seasonCount} saison${seasonCount > 1 ? "s" : ""}` : formatRuntime(item.runtime),
+		isSeries.value && seasonCount ? `${seasonCount} saison${seasonCount > 1 ? "s" : ""}` : formatRuntime(item.runtime),
 		item.ageRating ? `-${item.ageRating}` : null,
 		item.rating ? `★ ${item.rating.toFixed(1)}${item.votes ? ` (${formatCount(item.votes)})` : ""}` : null,
 	].filter(Boolean);
@@ -205,6 +213,9 @@ watch(
 									<AppIcon name="gift" :size="11" />
 									Gratuit &amp; légal
 								</span>
+								<span v-if="title" class="badge bg-white/10 text-white/75 backdrop-blur">
+									{{ mediaTypeLabel(title) }}
+								</span>
 							</div>
 
 							<div v-if="title.genres?.length" class="flex flex-wrap gap-2">
@@ -219,10 +230,13 @@ watch(
 									<span>{{ free ? "Regarder maintenant" : "Où regarder gratuitement" }}</span>
 								</RouterLink>
 
+								<!-- Le bouton reste affiché même quand les flux sont attachés
+									     aux épisodes (séries gratuites) : l'assistant saura les
+									     résoudre saison par saison. -->
 								<DownloadButton
-									v-if="free && title.streams?.length"
+									v-if="free && (title.streams?.length || archiveEpisodes.length)"
 									:item="title"
-									:stream="title.streams[0]"
+									:stream="title.streams?.[0] || null"
 									label="Télécharger"
 								/>
 

@@ -543,9 +543,24 @@ pub async fn resolve_download(
 	let chosen = wanted
 		.as_deref()
 		.and_then(|quality| {
+			// Qualité exacte d'abord.
 			raw_streams.iter().find(|stream| {
 				stream.get("quality").and_then(|value| value.as_str()) == Some(quality)
 			})
+		})
+		// Sinon la plus proche (360/480/720/1080) : un épisode qui n'existe pas
+		// dans la qualité demandée ne doit pas retomber sur la plus basse.
+		.or_else(|| {
+			let wanted_height = wanted.as_deref().and_then(quality_height);
+			raw_streams
+				.iter()
+				.filter_map(|stream| {
+					let label = stream.get("quality").and_then(|value| value.as_str())?;
+					let height = quality_height(label)?;
+					Some((wanted_height.map_or(i64::MAX, |target| (height - target).abs()), stream))
+				})
+				.min_by_key(|(distance, _)| *distance)
+				.map(|(_, stream)| stream)
 		})
 		.or_else(|| raw_streams.first())
 		.ok_or_else(|| ApiError::not_found("Aucun flux téléchargeable pour ce titre"))?;
@@ -566,6 +581,12 @@ pub async fn resolve_download(
 }
 
 /// Extrait une qualité du type `720p` / `1080p` depuis un nom de fichier.
+/// Hauteur vidéo d'un libellé de qualité (« 1080p » -> 1080).
+fn quality_height(label: &str) -> Option<i64> {
+	let digits: String = label.chars().take_while(|c| c.is_ascii_digit()).collect();
+	digits.parse::<i64>().ok().filter(|height| *height >= 144)
+}
+
 fn parse_quality(file_name: &str) -> Option<String> {
 	let lowered = file_name.to_lowercase();
 	let bytes = lowered.as_bytes();
@@ -697,7 +718,23 @@ pub async fn episodes(id: &str) -> Result<Vec<Value>> {
 		}
 	}
 
-	flattened.truncate(100);
+	// Tri naturel saison -> numéro : l'interface et l'assistant de téléchargement
+	// supposent une liste ordonnée.
+	flattened.sort_by_key(|episode| {
+		let season = episode
+			.get("season")
+			.and_then(|value| value.as_i64())
+			.unwrap_or(1);
+		let number = episode
+			.get("number")
+			.and_then(|value| value.as_i64())
+			.unwrap_or(0);
+		(season, number)
+	});
+
+	// Garde-fou large : certaines séries dépassent 300 épisodes (8 saisons et plus).
+	// Une coupure trop basse faisait disparaître les dernières saisons.
+	flattened.truncate(1000);
 	Ok(flattened)
 }
 

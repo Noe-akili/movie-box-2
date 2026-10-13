@@ -189,11 +189,23 @@ async fn search_commons_inner(params: FreeSearchParams<'_>) -> Result<ArcJsonVal
 }
 
 /// Fiche complète, quel que soit le fournisseur indiqué par l'identifiant.
+///
+/// `media_type` reprend le type de la route (`/title/{mediaType}/{id}`) : le front
+/// ouvre les fiches internes avec un identifiant nu (`/title/internal/<id>`), sans
+/// le préfixe `internal:` — sans cette précision, la fiche partait chez Internet
+/// Archive et renvoyait « aucun fichier vidéo lisible ».
 pub async fn get_free_title(identifier: &str) -> Result<Value> {
+	get_free_title_from(identifier, None).await
+}
+
+pub async fn get_free_title_from(identifier: &str, media_type: Option<&str>) -> Result<Value> {
 	if commons::is_commons_id(identifier) {
 		commons::get_commons_title(identifier).await
-	} else if identifier.starts_with(internal::ID_PREFIX) {
-		internal::title(&identifier[internal::ID_PREFIX.len()..]).await
+	} else if identifier.starts_with(internal::ID_PREFIX) || media_type == Some("internal") {
+		let id = identifier
+			.strip_prefix(internal::ID_PREFIX)
+			.unwrap_or(identifier);
+		internal::title(id).await
 	} else {
 		archive::get_archive_title(identifier).await
 	}

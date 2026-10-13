@@ -8,6 +8,7 @@
     "dev:api": "cargo run --manifest-path server-rust/Cargo.toml",
     "dev:all": "node scripts/dev.mjs",
     "build": "vite build",
+    "test": "node --test 'src/util/*.test.js'",
     "preview": "vite preview",
     "start": "cargo run --release --manifest-path server-rust/Cargo.toml",
     "install:all": "npm install && cargo build --manifest-path server-rust/Cargo.toml"

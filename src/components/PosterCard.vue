@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from "vue";
 import AppIcon from "./AppIcon.vue";
-import { detailRoute, isFree } from "../util/media";
+import { detailRoute, isFree, isSeriesTitle, mediaTypeLabel, seasonCountOf } from "../util/media";
 import { formatRuntime } from "../util/format";
 import { useLibrary } from "../stores/library";
 import { toast } from "../stores/toast";
@@ -17,13 +17,28 @@ const { isFavorite, toggleFavorite } = useLibrary();
 
 const saved = computed(() => isFavorite(props.item));
 const free = computed(() => isFree(props.item));
+// Type réel (film / série) déduit des données de l'API : les séries gratuites
+// (archive ou source interne) ne portent pas toujours mediaType === "tv".
+const series = computed(() => isSeriesTitle(props.item));
+const seasonCount = computed(() => seasonCountOf(props.item));
+const seriesLabel = computed(() => {
+	if (!series.value) return null;
+	return seasonCount.value ? `Série · ${seasonCount.value} saison${seasonCount.value > 1 ? "s" : ""}` : "Série";
+});
 const progress = computed(() => {
 	const value = Number(props.item?.progress);
 	if (!Number.isFinite(value) || value <= 0) return null;
 	return Math.min(100, Math.round(value <= 1 ? value * 100 : value));
 });
 const meta = computed(() =>
-	[props.item.year || null, props.item.mediaType === "archive" ? null : formatRuntime(props.item.runtime)]
+	[
+		props.item.year || null,
+		series.value
+			? seasonCount.value
+				? `${seasonCount.value} saison${seasonCount.value > 1 ? "s" : ""}`
+				: "Série"
+			: formatRuntime(props.item.runtime),
+	]
 		.filter(Boolean)
 		.join(" • "),
 );
@@ -75,7 +90,10 @@ const onToggleFavorite = () => {
 				class="badge absolute left-1.5 top-1.5 shadow-soft"
 				:class="free ? 'badge-free' : 'bg-black/60 text-white backdrop-blur'"
 			>
-				{{ free ? "GRATUIT" : props.item.mediaType === "tv" ? "SÉRIE" : "FILM" }}
+				{{ free ? "GRATUIT" : mediaTypeLabel(props.item) }}
+			</span>
+			<span v-if="seriesLabel" class="badge absolute left-1.5 top-8 bg-black/65 text-white/80 backdrop-blur">
+				{{ seriesLabel }}
 			</span>
 
 			<span

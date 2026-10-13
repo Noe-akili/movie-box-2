@@ -3,9 +3,11 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { fetchFreeTitles } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
+import DownloadButton from "../components/DownloadButton.vue";
 import EmptyState from "../components/EmptyState.vue";
 import MediaGrid from "../components/MediaGrid.vue";
 import SkeletonRail from "../components/SkeletonRail.vue";
+import { detailRoute, isSeriesTitle, mediaTypeLabel, seasonCountOf, watchRoute } from "../util/media";
 
 const router = useRouter();
 
@@ -41,6 +43,25 @@ const isLoadingMore = ref(false);
 const errorMessage = ref(null);
 
 const heading = computed(() => (source.value === "internal" ? "Catalogue gratuit" : "Films gratuits"));
+
+// Grand visuel d'accueil : le premier titre du catalogue, comme une vraie
+// application de streaming (affiche en fond, badges, lecture + téléchargement).
+const featured = computed(() => items.value.find((item) => item.backdrop || item.poster) || items.value[0] || null);
+const featuredSeasons = computed(() => seasonCountOf(featured.value));
+// Les cartes ne portent pas la liste des épisodes : pour une série, on laisse
+// l'assistant de la fiche détaillée gérer saisons et épisodes.
+const featuredIsSeries = computed(() => isSeriesTitle(featured.value));
+const featuredMeta = computed(() => {
+	const item = featured.value;
+	if (!item) return [];
+	const series = isSeriesTitle(item);
+	return [
+		mediaTypeLabel(item),
+		item.year || null,
+		series && featuredSeasons.value ? `${featuredSeasons.value} saison${featuredSeasons.value > 1 ? "s" : ""}` : null,
+		item.rating ? `★ ${item.rating.toFixed(1)}` : null,
+	].filter(Boolean);
+});
 const subtitle = computed(() =>
 	total.value
 		? `${total.value.toLocaleString("fr-FR")} titres · lecture directe, sans compte`
@@ -165,6 +186,69 @@ onMounted(() => load({ reset: true }));
 				</div>
 			</div>
 		</header>
+
+		<!-- Grand visuel d'accueil du catalogue gratuit -->
+		<section
+			v-if="featured"
+			class="relative isolate h-[62vh] min-h-[380px] w-full overflow-hidden bg-inkDeep"
+		>
+			<div
+				class="h-full w-full bg-cover bg-center"
+				:style="
+					featured.backdrop || featured.poster
+						? { backgroundImage: `url(${featured.backdrop || featured.poster})` }
+						: {}
+				"
+			></div>
+			<div class="absolute inset-0 bg-hero-gradient"></div>
+			<div class="absolute inset-0 bg-hero-scrim"></div>
+
+			<div class="absolute inset-x-0 bottom-0 px-4 pb-8 md:px-8 md:pb-12 lg:px-12">
+				<div class="max-w-2xl animate-riseIn space-y-3">
+					<div class="flex flex-wrap items-center gap-2">
+						<span class="badge badge-free">
+							<AppIcon name="gift" :size="11" />
+							Gratuit
+						</span>
+						<span
+							v-for="entry in featuredMeta"
+							:key="entry"
+							class="badge bg-white/10 text-white/80 backdrop-blur"
+							:class="String(entry).startsWith('★') ? 'text-gold' : ''"
+						>
+							{{ entry }}
+						</span>
+					</div>
+
+					<h2 class="text-shadow-hero text-2xl font-black leading-tight tracking-tight text-white sm:text-4xl lg:text-5xl">
+						{{ featured.title }}
+					</h2>
+
+					<p v-if="featured.overview" class="line-clamp-2 max-w-xl text-sm text-white/70 sm:text-base">
+						{{ featured.overview }}
+					</p>
+
+					<div class="flex flex-wrap items-center gap-2.5 pt-1">
+						<RouterLink :to="watchRoute(featured)" class="btn btn-solid px-6 py-3 text-[15px]">
+							<AppIcon name="play" :size="19" filled />
+							<span>Regarder maintenant</span>
+						</RouterLink>
+
+						<DownloadButton
+								v-if="!featuredIsSeries"
+								:item="featured"
+								:stream="featured.streams?.[0] || null"
+								label="Télécharger"
+							/>
+
+						<RouterLink :to="detailRoute(featured)" class="btn btn-inverse px-5 py-3 text-[15px]">
+							<AppIcon name="info" :size="19" />
+							<span>Plus d'infos</span>
+						</RouterLink>
+					</div>
+				</div>
+			</div>
+		</section>
 
 		<section class="mx-auto max-w-[1800px] px-4 py-6 md:px-6 lg:px-8">
 			<SkeletonRail v-if="isLoading" :count="14" variant="grid" :title="false" />

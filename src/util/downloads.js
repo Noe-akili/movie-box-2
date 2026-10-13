@@ -1,6 +1,19 @@
 /** Aides partagées pour les téléchargements (identifiant source + nom de fichier). */
 
-export const downloadBaseSource = (item) => item?.archiveId || item?.sourceId || null;
+export const downloadBaseSource = (item) => {
+	if (!item) return null;
+
+	// Fiche complète : archiveId (Internet Archive / Wikimedia) ou sourceId.
+	const direct = item.archiveId || item.sourceId;
+	if (direct) return direct;
+
+	// Carte issue du catalogue interne : seuls `internalId` / `id` sont fournis
+	// (la fiche complète ajoute ensuite `sourceId: "internal:<id>"`).
+	if (item.internalId) return `internal:${item.internalId}`;
+
+	const id = String(item.id || "");
+	return id.startsWith("internal:") ? id : null;
+};
 
 export const isInternalSource = (item) => String(downloadBaseSource(item) || "").startsWith("internal:");
 
@@ -25,6 +38,54 @@ export const streamExtension = (stream) => {
 	if (format.includes("webm")) return "webm";
 	if (format.includes("mp4") || format.includes("m4v")) return "mp4";
 	return "mp4";
+};
+
+/**
+ * Choisit le flux correspondant le mieux à une qualité demandée.
+ *
+ * L'API MovieBox ne propose pas les mêmes qualités pour tous les épisodes
+ * (une saison récente peut n'exister qu'en 480p, une autre en 360/480/1080).
+ * Retomber sur le premier flux faisait télécharger la qualité la plus basse :
+ * on prend la qualité exacte si elle existe, sinon la plus proche — et à
+ * distance égale, la plus haute (meilleur rendu).
+ */
+export const qualityHeight = (quality) => {
+	const digits = String(quality || "").replace(/[^0-9]/g, "");
+	if (!digits) return null;
+	const height = Number(digits);
+	return height >= 144 ? height : null;
+};
+
+export const pickQualityStream = (streams, wanted) => {
+	const list = Array.isArray(streams) ? streams.filter(Boolean) : [];
+	if (!list.length) return null;
+
+	const target = String(wanted || "").trim().toLowerCase();
+	if (target) {
+		const exact = list.find((stream) => String(stream.quality || "").toLowerCase() === target);
+		if (exact) return exact;
+	}
+
+	const wantedHeight = qualityHeight(wanted);
+	if (wantedHeight === null) return list[0];
+
+	let best = null;
+	let bestDistance = Number.POSITIVE_INFINITY;
+	for (const stream of list) {
+		const height = qualityHeight(stream.quality);
+		if (height === null) continue;
+
+		const distance = Math.abs(height - wantedHeight);
+		if (
+			distance < bestDistance ||
+			(distance === bestDistance && best && height > qualityHeight(best.quality))
+		) {
+			bestDistance = distance;
+			best = stream;
+		}
+	}
+
+	return best || list[0];
 };
 
 const pad = (value) => String(value).padStart(2, "0");

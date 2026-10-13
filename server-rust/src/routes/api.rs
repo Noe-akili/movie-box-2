@@ -977,7 +977,7 @@ async fn title(
 ) -> Result<Json<Value>> {
 	// Sources gratuites : lecture directe, contrat préservé par le service concerné.
 	if matches!(media_type.as_str(), "archive" | "commons" | "internal") {
-		let free_title = free::get_free_title(&id).await?;
+		let free_title = free::get_free_title_from(&id, Some(media_type.as_str())).await?;
 		return Ok(Json(free_title));
 	}
 
