@@ -96,7 +96,7 @@ onBeforeUnmount(stop);
 <template>
 	<section
 		v-if="props.items.length"
-		class="group relative isolate h-[78vh] max-h-[760px] min-h-[520px] w-full overflow-hidden bg-inkDeep md:h-[86vh]"
+		class="group relative isolate h-[58vh] max-h-[620px] min-h-[360px] w-full overflow-hidden bg-inkDeep md:h-[64vh]"
 		@touchstart.passive="onTouchStart"
 		@touchend.passive="onTouchEnd"
 	>

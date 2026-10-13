@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { RouterView, useRoute } from "vue-router";
 import BottomNav from "./components/BottomNav.vue";
 import Loader from "./components/Loader.vue";
+import RequestProgress from "./components/RequestProgress.vue";
 import ToastHost from "./components/ToastHost.vue";
 import TopBar from "./components/TopBar.vue";
 import { ensureDownloadsPolling } from "./stores/downloads";
@@ -40,6 +41,7 @@ watch(
 </script>
 
 <template>
+	<RequestProgress />
 	<ToastHost />
 	<Loader v-if="isLoading" />
 

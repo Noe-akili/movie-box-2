@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { fetchDiscover, fetchGenres } from "../api/client";
+import { useInfiniteScroll } from "../composables/useInfiniteScroll";
 import EmptyState from "../components/EmptyState.vue";
 import MediaGrid from "../components/MediaGrid.vue";
 import SkeletonRail from "../components/SkeletonRail.vue";
@@ -51,9 +52,6 @@ const hasMore = ref(false);
 const isLoading = ref(true);
 const isLoadingMore = ref(false);
 const errorMessage = ref(null);
-const sentinel = ref(null);
-
-let observer = null;
 
 const sortOptions = computed(() => SORT_OPTIONS[props.mediaType] || SORT_OPTIONS.movie);
 const pageTitle = computed(() => (props.mediaType === "tv" ? "Séries & Anime" : "Films"));
@@ -148,23 +146,15 @@ watch(
 	},
 );
 
-onMounted(() => {
-	load({ reset: true });
-	loadGenres();
+	// Défilement infini : la suite se charge en arrivant en bas de la page.
+	const { sentinel } = useInfiniteScroll(() => load({ reset: false }), {
+		enabled: computed(() => hasMore.value && !isLoading.value && !isLoadingMore.value),
+	});
 
-	observer = new IntersectionObserver(
-		(entries) => {
-			if (entries[0]?.isIntersecting && hasMore.value && !isLoading.value && !isLoadingMore.value) {
-				load({ reset: false });
-			}
-		},
-		{ rootMargin: "600px 0px" },
-	);
-
-	if (sentinel.value) observer.observe(sentinel.value);
-});
-
-onBeforeUnmount(() => observer?.disconnect());
+	onMounted(() => {
+		load({ reset: true });
+		loadGenres();
+	});
 </script>
 
 
@@ -240,16 +230,22 @@ onBeforeUnmount(() => observer?.disconnect());
 
 				<div ref="sentinel" class="h-10"></div>
 
-				<div v-if="hasMore" class="flex justify-center py-4">
-					<button
-						type="button"
-						class="btn btn-inverse px-6"
-						:disabled="isLoadingMore"
-						@click="load({ reset: false })"
-					>
-						{{ isLoadingMore ? "Chargement…" : "Charger plus" }}
-					</button>
+				<!-- Indicateur de chargement (le scroll infini fait le reste). -->
+				<div v-if="isLoadingMore" class="flex justify-center py-4">
+					<span class="inline-flex items-center gap-2 text-xs text-white/45">
+						<span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-brandSoft"></span>
+						Chargement…
+					</span>
 				</div>
+
+				<button
+					v-else-if="hasMore"
+					type="button"
+					class="btn btn-inverse mx-auto flex px-6"
+					@click="load({ reset: false })"
+				>
+					<span>Charger plus</span>
+				</button>
 			</template>
 		</section>
 	</div>

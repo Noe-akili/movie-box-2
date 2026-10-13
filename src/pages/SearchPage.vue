@@ -1,7 +1,8 @@
 <script setup>
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { searchTitles } from "../api/client";
+import { useInfiniteScroll } from "../composables/useInfiniteScroll";
 import AppIcon from "../components/AppIcon.vue";
 import EmptyState from "../components/EmptyState.vue";
 import MediaGrid from "../components/MediaGrid.vue";
@@ -23,36 +24,63 @@ const activeTab = ref("all");
 const results = ref([]);
 const free = ref({ items: [], total: 0 });
 const isLoading = ref(false);
+const isLoadingMore = ref(false);
 const errorMessage = ref(null);
 const searched = ref(false);
+const page = ref(1);
+const hasMore = ref(false);
 
 let debounce = null;
 
-const run = async (term, { remember = false } = {}) => {
+const run = async (term, { remember = false, next = false } = {}) => {
 	const value = String(term || "").trim();
 	if (value.length < 2) {
 		results.value = [];
 		free.value = { items: [], total: 0 };
 		searched.value = false;
+		hasMore.value = false;
 		return;
 	}
 
-	isLoading.value = true;
+	// Premier chargement : squelette plein écran. Suite : indicateur discret.
+	if (next) isLoadingMore.value = true;
+	else isLoading.value = true;
 	errorMessage.value = null;
 
 	try {
-		const data = await searchTitles({ q: value, type: activeTab.value });
-		results.value = data.results || [];
-		free.value = data.free || { items: [], total: 0 };
-		searched.value = true;
-		if (remember) push(value);
-		router.replace({ query: { q: value } });
+		const nextPage = next ? page.value + 1 : 1;
+		const data = await searchTitles({ q: value, type: activeTab.value, page: nextPage });
+		const incoming = data.results || [];
+
+		results.value = next ? [...results.value, ...incoming] : incoming;
+		page.value = nextPage;
+		hasMore.value = incoming.length > 0;
+
+		if (!next) {
+			free.value = data.free || { items: [], total: 0 };
+			searched.value = true;
+			if (remember) push(value);
+			router.replace({ query: { q: value } });
+		}
 	} catch (error) {
 		errorMessage.value = error.message;
 	} finally {
 		isLoading.value = false;
+		isLoadingMore.value = false;
 	}
 };
+
+// Défilement infini : la suite des résultats en arrivant en bas de la page.
+const { sentinel } = useInfiniteScroll(() => run(query.value, { next: true }), {
+	enabled: computed(
+		() =>
+			hasMore.value &&
+			!isLoading.value &&
+			!isLoadingMore.value &&
+			searched.value &&
+			query.value.trim().length >= 2,
+	),
+});
 
 const onInput = () => {
 	window.clearTimeout(debounce);
@@ -148,6 +176,15 @@ onMounted(() => {
 				<div v-if="results.length">
 					<h2 class="section-title mb-3">Films & séries ({{ results.length }})</h2>
 					<MediaGrid :items="results" />
+
+					<!-- Défilement infini : la suite des résultats en arrivant en bas. -->
+					<div ref="sentinel" class="h-10"></div>
+					<div v-if="isLoadingMore" class="flex justify-center py-4">
+						<span class="inline-flex items-center gap-2 text-xs text-white/45">
+							<span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-brandSoft"></span>
+							Recherche de plus de résultats…
+						</span>
+					</div>
 				</div>
 
 				<MediaRow

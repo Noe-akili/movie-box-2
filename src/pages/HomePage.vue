@@ -1,6 +1,7 @@
 <script setup>
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { fetchHome } from "../api/client";
+import AppIcon from "../components/AppIcon.vue";
 import EmptyState from "../components/EmptyState.vue";
 import HeroCarousel from "../components/HeroCarousel.vue";
 import MediaRow from "../components/MediaRow.vue";
@@ -13,6 +14,11 @@ const rails = ref([]);
 const isLoading = ref(true);
 const errorMessage = ref(null);
 const isPartial = ref(false);
+// L'accueil reste court : quelques rails visibles, le reste au clic sur « Voir plus ».
+const RAILS_STEP = 4;
+const visibleRails = ref(RAILS_STEP);
+const shownRails = computed(() => rails.value.slice(0, visibleRails.value));
+const hasMoreRails = computed(() => visibleRails.value < rails.value.length);
 
 const { history } = useLibrary();
 const settings = useSettings();
@@ -25,6 +31,7 @@ const load = async () => {
 		const data = await fetchHome();
 		hero.value = data.hero || [];
 		rails.value = data.rails || [];
+		visibleRails.value = RAILS_STEP;
 		isPartial.value = Boolean(data.partial);
 	} catch (error) {
 		errorMessage.value = error.message;
@@ -40,9 +47,9 @@ watch(() => settings.value.language, load);
 <template>
 	<div class="pb-nav">
 		<HeroCarousel v-if="hero.length" :items="hero" />
-		<div v-else class="skeleton h-[78vh] min-h-[520px] w-full rounded-none md:h-[86vh]"></div>
+		<div v-else class="skeleton h-[58vh] min-h-[340px] w-full rounded-none"></div>
 
-		<div class="mx-auto max-w-[1800px] space-y-7 pt-6 md:space-y-9 md:pt-8">
+		<div class="mx-auto max-w-[1800px] space-y-5 pt-4 md:space-y-6 md:pt-5">
 			<MediaRow
 				v-if="history.length"
 				title="Reprendre la lecture"
@@ -79,13 +86,23 @@ watch(() => settings.value.language, load);
 				</p>
 
 				<MediaRow
-					v-for="(rail, index) in rails"
+					v-for="(rail, index) in shownRails"
 					:key="rail.id"
 					:title="rail.title"
 					:items="rail.items"
 					:href="rail.href"
 					:ranked="index === 0"
 				/>
+
+				<button
+					v-if="hasMoreRails"
+					type="button"
+					class="btn btn-inverse mx-auto flex px-6"
+					@click="visibleRails += RAILS_STEP"
+				>
+					<AppIcon name="chevronDown" :size="16" />
+					<span>Voir plus de catégories</span>
+				</button>
 
 				<EmptyState
 					v-if="!rails.length"

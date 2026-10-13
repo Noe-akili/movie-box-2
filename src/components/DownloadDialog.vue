@@ -99,6 +99,77 @@ const seasonEpisodes = computed(() =>
 
 const availableEpisodes = computed(() => seasonEpisodes.value.filter((entry) => entry.available));
 const selectedCount = computed(() => selectedKeys.value.length);
+const selectedEpisodes = computed(() =>
+	seasonEpisodes.value.filter(
+		(entry) => entry.available && selectedKeys.value.includes(keyOf(entry.episode)),
+	),
+);
+
+// Tailles : par épisode puis cumul de la sélection. L'API interne ne renvoie la
+// taille qu'épisode par épisode (une saison récente n'a parfois qu'une qualité) :
+// on interroge les flux au changement de saison pour afficher un total juste.
+const episodeSizes = ref({});
+const isLoadingSizes = ref(false);
+
+const sizeOf = (episode) => {
+	const key = keyOf(episode);
+	const known = episodeSizes.value[key];
+	return typeof known === "number" ? known : null;
+};
+
+const totalSize = computed(() => {
+	let total = 0;
+	let known = 0;
+	for (const entry of selectedEpisodes.value) {
+		const size = sizeOf(entry.episode);
+		if (typeof size === "number") {
+			total += size;
+			known += 1;
+		}
+	}
+	// Total partiel : on ne l'affiche que si au moins une taille est connue.
+	return { total, known, complete: known > 0 && known === selectedEpisodes.value.length };
+});
+
+const totalSizeLabel = computed(() => {
+	if (!totalSize.value.known) return null;
+	const label = formatSize(totalSize.value.total);
+	return totalSize.value.complete ? label : `environ ${label}`;
+});
+
+/** Lit les tailles des épisodes d'une saison (source interne uniquement). */
+const loadEpisodeSizes = async (season) => {
+	if (!isInternal.value || !internalId.value || !season) return;
+
+	const pool = episodes.value.filter((episode) => (episode.season ?? 1) === season);
+	const missing = pool.filter((episode) => sizeOf(episode) === null);
+	if (!missing.length) return;
+
+	isLoadingSizes.value = true;
+	try {
+		await Promise.all(
+			missing.map(async (episode) => {
+				try {
+					const data = await fetchInternalStreams(internalId.value, {
+						season: episode.season ?? 1,
+						episode: episode.number ?? 1,
+					});
+					const stream = pickQualityStream(data?.streams || [], selectedQuality.value);
+					if (stream?.size) {
+						episodeSizes.value = {
+							...episodeSizes.value,
+							[keyOf(episode)]: stream.size,
+						};
+					}
+				} catch {
+					// Taille indisponible pour cet épisode : on l'ignore.
+				}
+			}),
+		);
+	} finally {
+		isLoadingSizes.value = false;
+	}
+};
 const allSelected = computed(
 	() => availableEpisodes.value.length > 0 && selectedCount.value === availableEpisodes.value.length,
 );
@@ -309,10 +380,20 @@ const onKeydown = (event) => {
 	if (event.key === "Escape") close();
 };
 
-// Changer de saison change les qualités disponibles : on les relit pour la
-// saison affichée (une saison récente peut n'exister qu'en 480p).
+// Changer de saison change les qualites disponibles : on les relit pour la
+// saison affichée (une saison récente peut n'exister qu'en 480p), puis on lit
+// la taille de chaque épisode pour alimenter le total.
 watch(selectedSeason, (season) => {
-	if (effectiveSeries.value && season) loadQualities(season);
+	if (!effectiveSeries.value || !season) return;
+	loadQualities(season);
+	loadEpisodeSizes(season);
+});
+
+// La taille dépend aussi de la qualité choisie : on relit si elle change.
+watch(selectedQuality, () => {
+	if (!effectiveSeries.value || !selectedSeason.value) return;
+	episodeSizes.value = {};
+	loadEpisodeSizes(selectedSeason.value);
 });
 
 onMounted(async () => {
@@ -325,6 +406,7 @@ onMounted(async () => {
 	}
 
 	await loadQualities(selectedSeason.value);
+	loadEpisodeSizes(selectedSeason.value);
 });
 
 onBeforeUnmount(() => {
@@ -445,9 +527,17 @@ onBeforeUnmount(() => {
 
 					<!-- Étape 2 : épisodes -->
 					<template v-else>
-						<div class="mb-3 flex items-center justify-between gap-3">
+						<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
 							<p class="text-xs text-white/45">
 								Saison {{ selectedSeason }} · {{ selectedQuality }} · {{ selectedCount }} sélectionné(s)
+							</p>
+							<p
+								v-if="selectedCount"
+								class="rounded-lg bg-brand/10 px-2.5 py-1 text-[11px] font-semibold text-brandSoft"
+							>
+								<span v-if="totalSizeLabel">Total : {{ totalSizeLabel }}</span>
+								<span v-else-if="isLoadingSizes" class="text-white/40">Calcul de la taille…</span>
+								<span v-else class="text-white/40">Taille inconnue</span>
 							</p>
 							<button type="button" class="chip !py-1 text-xs" @click="toggleAll">
 								{{ allSelected ? "Tout désélectionner" : "Tout sélectionner" }}
@@ -497,9 +587,13 @@ onBeforeUnmount(() => {
 									>
 										Indispo.
 									</span>
-									<span v-else-if="entry.stream?.size" class="shrink-0 text-[10px] text-white/35">
-										{{ formatSize(entry.stream.size) }}
+									<span
+										v-else-if="entry.stream?.size || sizeOf(entry.episode) !== null"
+										class="shrink-0 text-[10px] text-white/35"
+									>
+										{{ formatSize(entry.stream?.size ?? sizeOf(entry.episode)) }}
 									</span>
+									<span v-else-if="isLoadingSizes" class="skeleton h-3 w-12 shrink-0"></span>
 								</button>
 							</li>
 						</ul>

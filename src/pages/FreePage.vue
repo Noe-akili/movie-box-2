@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { fetchFreeTitles } from "../api/client";
+import { useInfiniteScroll } from "../composables/useInfiniteScroll";
 import AppIcon from "../components/AppIcon.vue";
 import DownloadButton from "../components/DownloadButton.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -69,6 +70,11 @@ const subtitle = computed(() =>
 );
 
 let debounce = null;
+
+// Défilement infini : de nouveaux titres en arrivant en bas de la page.
+const { sentinel } = useInfiniteScroll(() => load({ reset: false }), {
+	enabled: computed(() => hasMore.value && !isLoading.value && !isLoadingMore.value),
+});
 
 const syncQuery = () => {
 	router.replace({
@@ -272,16 +278,24 @@ onMounted(() => load({ reset: true }));
 					description="Essaie un autre mot-clé ou une autre collection."
 				/>
 
-				<div v-if="hasMore" class="flex justify-center py-6">
-					<button
-						type="button"
-						class="btn btn-inverse px-6"
-						:disabled="isLoadingMore"
-						@click="load({ reset: false })"
-					>
-						{{ isLoadingMore ? "Chargement…" : "Charger plus" }}
-					</button>
+				<!-- Témoin du défilement infini. -->
+				<div ref="sentinel" class="h-10"></div>
+
+				<div v-if="isLoadingMore" class="flex justify-center py-6">
+					<span class="inline-flex items-center gap-2 text-xs text-white/45">
+						<span class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-brandSoft"></span>
+						Chargement…
+					</span>
 				</div>
+
+				<button
+					v-else-if="hasMore"
+					type="button"
+					class="btn btn-inverse mx-auto flex px-6"
+					@click="load({ reset: false })"
+				>
+					<span>Charger plus</span>
+				</button>
 			</template>
 		</section>
 	</div>

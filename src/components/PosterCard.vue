@@ -55,7 +55,7 @@ const onToggleFavorite = () => {
 <template>
 	<RouterLink
 		:to="detailRoute(props.item)"
-		class="group block focus:outline-none"
+		class="group flex h-full flex-col focus:outline-none"
 		:class="props.width"
 	>
 		<div
@@ -126,7 +126,11 @@ const onToggleFavorite = () => {
 			</div>
 		</div>
 
-		<div v-if="props.showMeta" class="mt-2 space-y-0.5" :class="props.rank ? 'pl-8' : ''">
+		<div
+			v-if="props.showMeta"
+			class="mt-2 flex-1 space-y-0.5"
+			:class="props.rank ? 'pl-8' : ''"
+		>
 			<h3 class="line-clamp-1 text-[13px] font-semibold text-white/90 transition-normal group-hover:text-brandSoft">
 				{{ props.item.title }}
 			</h3>

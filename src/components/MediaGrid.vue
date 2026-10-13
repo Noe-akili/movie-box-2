@@ -8,7 +8,8 @@ const props = defineProps({
 </script>
 
 <template>
-	<div class="grid gap-x-3 gap-y-5 md:gap-x-4" :class="props.columns">
+	<!-- auto-rows-fr + h-full : toutes les cartes ont exactement la meme taille. -->
+	<div class="grid auto-rows-fr gap-x-3 gap-y-5 md:gap-x-4" :class="props.columns">
 		<PosterCard
 			v-for="item in props.items"
 			:key="item.id"

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { usePending } from "../stores/loading";
 import { useSettings } from "../stores/settings";
 
 /**
@@ -23,12 +24,23 @@ http.interceptors.request.use((request) => {
 		...(request.params || {}),
 	};
 
+	// Barre de progression : chaque requête lancée donne un retour visuel immédiat
+	// (l'utilisateur ne croit pas que l'app a plante pendant un appel lent).
+	usePending().beginRequest();
+
 	return request;
 });
 
+// Fin de requête : le compteur de la barre est décrémenté dans les deux cas.
+const endRequest = () => usePending().endRequest();
+
 http.interceptors.response.use(
-	(response) => response.data,
+	(response) => {
+		endRequest();
+		return response.data;
+	},
 	(error) => {
+		endRequest();
 		const status = error.response?.status;
 		const isTimeout = error.code === "ECONNABORTED" || /timeout/i.test(error.message || "");
 		const message =
