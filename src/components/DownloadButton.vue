@@ -3,80 +3,44 @@ import { computed, ref } from "vue";
 import { downloadFileUrl } from "../api/client";
 import { useDownloads } from "../stores/downloads";
 import { toast } from "../stores/toast";
+import { downloadFileName, downloadSourceId } from "../util/downloads";
 import { formatSize } from "../util/format";
 import AppIcon from "./AppIcon.vue";
+import DownloadDialog from "./DownloadDialog.vue";
 
 /**
  * Bouton de telechargement d'un film ou d'un episode (fichier libre de droits).
- * Il suit l'etat reel du transfert cote backend : a lancer, en cours (avec %), deja stocke.
+ * Il suit l'etat reel du transfert cote backend et ouvre l'assistant (qualite / saison / episodes).
  */
 const props = defineProps({
 	item: { type: Object, required: true },
-	stream: { type: Object, required: true },
+	stream: { type: Object, default: null },
 	episode: { type: Object, default: null },
 	label: { type: String, default: "Télécharger" },
 	compact: { type: Boolean, default: false },
 });
 
-const { entryFor, start, retry } = useDownloads();
+const { entryFor, retry } = useDownloads();
 const isStarting = ref(false);
+const isOpen = ref(false);
 
-const baseSourceId = computed(() => props.item?.archiveId || props.item?.sourceId || null);
-const isInternal = computed(() => String(baseSourceId.value || "").startsWith("internal:"));
-const sourceId = computed(() => {
-	const base = baseSourceId.value;
-	if (!base) return null;
-	if (isInternal.value && props.episode) {
-		return `${base}:${props.episode.season ?? 0}:${props.episode.number ?? 1}`;
-	}
-	return base;
-});
-const fileName = computed(() => {
-	if (props.stream?.fileName) return props.stream.fileName;
-	const stem =
-		String(props.item?.title || "video")
-			.replace(/[\\/:*?"<>|]/g, " ")
-			.replace(/\s+/g, " ")
-			.trim() || "video";
-	const quality = props.stream?.quality ? ` ${props.stream.quality}` : "";
-	return `${stem}${quality}.mp4`;
-});
-const entry = computed(() =>
-	sourceId.value ? entryFor(sourceId.value, fileName.value) : null,
-);
+const sourceId = computed(() => downloadSourceId(props.item, props.episode));
+const fileName = computed(() => downloadFileName(props.item, props.stream, { episode: props.episode }));
+const entry = computed(() => (sourceId.value ? entryFor(sourceId.value, fileName.value) : null));
 const isActive = computed(() => ["queued", "downloading"].includes(entry.value?.status));
 const isDone = computed(() => entry.value?.status === "completed");
-const isFailed = computed(() => Boolean(entry.value) && ["error", "paused", "canceled"].includes(entry.value.status));
+const isFailed = computed(
+	() => Boolean(entry.value) && ["error", "paused", "canceled"].includes(entry.value.status),
+);
 const sizeLabel = computed(() => formatSize(props.stream?.size));
 const iconSize = computed(() => (props.compact ? 14 : 18));
 
-const onStart = async () => {
-	if (!sourceId.value) return;
-
+const onRetry = async () => {
+	if (!entry.value) return;
 	isStarting.value = true;
-
 	try {
-		if (entry.value) {
-			await retry(entry.value.id);
-			toast.success(`Reprise du téléchargement — ${entry.value.title}`);
-		} else {
-			await start({
-				sourceId: sourceId.value,
-				fileName: fileName.value,
-				title: props.episode ? props.episode.name || props.episode.label : props.item.title,
-				kind: props.episode ? "episode" : "movie",
-				seriesTitle: props.episode ? props.item.title : null,
-				seasonNumber: props.episode?.season ?? null,
-				episodeNumber: props.episode?.number ?? null,
-				episodeName: props.episode?.name ?? null,
-				label: props.episode?.label ?? null,
-				poster: props.item.poster,
-				backdrop: props.item.backdrop,
-				quality: props.stream.quality,
-				format: props.stream.format,
-			});
-			toast.success(`Téléchargement lancé — ${props.episode ? props.episode.name : props.item.title}`);
-		}
+		await retry(entry.value.id);
+		toast.success(`Reprise du téléchargement — ${entry.value.title}`);
 	} catch (error) {
 		toast.error(error.message);
 	} finally {
@@ -122,20 +86,37 @@ const onStart = async () => {
 	</template>
 
 	<button
+		v-else-if="isFailed"
+		type="button"
+		class="btn btn-inverse text-amber-300"
+		:class="props.compact ? 'px-3 py-2 text-xs' : 'px-4 py-3'"
+		:disabled="isStarting"
+		@click="onRetry"
+	>
+		<AppIcon name="download" :size="iconSize" />
+		<span>{{ isStarting ? "Reprise…" : "Reprendre" }}</span>
+	</button>
+
+	<button
 		v-else
 		type="button"
-		class="btn"
-		:class="[
-			props.compact ? 'px-3 py-2 text-xs' : 'px-4 py-3',
-			isFailed ? 'btn-inverse text-amber-300' : 'btn-inverse',
-		]"
-		:disabled="isStarting"
-		@click="onStart"
+		class="btn btn-inverse"
+		:class="props.compact ? 'px-3 py-2 text-xs' : 'px-4 py-3'"
+		@click="isOpen = true"
 	>
 		<AppIcon name="download" :size="iconSize" />
 		<span>
-			{{ isStarting ? "Démarrage…" : isFailed ? "Reprendre" : props.label }}
+			{{ props.label }}
 			<span v-if="sizeLabel && !props.compact" class="text-white/45">· {{ sizeLabel }}</span>
 		</span>
 	</button>
+
+	<DownloadDialog
+		v-if="isOpen"
+		:item="props.item"
+		:stream="props.stream"
+		:episode="props.episode"
+		:label="props.label"
+		@close="isOpen = false"
+	/>
 </template>

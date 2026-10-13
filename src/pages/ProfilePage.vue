@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { fetchHealth } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
+import DocumentationModal from "../components/DocumentationModal.vue";
 import { useLibrary } from "../stores/library";
 import { LANGUAGES, REGIONS, updateSettings, useSettings } from "../stores/settings";
 import { toast } from "../stores/toast";
@@ -11,6 +12,7 @@ const { favorites, history, clearFavorites, clearHistory } = useLibrary();
 
 const health = ref(null);
 const healthError = ref(null);
+const showDocs = ref(false);
 
 const stats = computed(() => [
 	{ label: "Favoris", value: favorites.value.length },
@@ -118,36 +120,26 @@ onMounted(checkServer);
 			</div>
 
 			<div class="surface space-y-3 p-4">
-				<h2 class="section-title">Sources &amp; légalité</h2>
-				<ul class="space-y-2 text-sm text-white/70">
-					<li class="flex gap-2">
-						<AppIcon name="film" :size="16" class="mt-0.5 text-white/40" />
-						<span>
-							<strong class="text-white">TMDB</strong> — métadonnées, affiches et bandes-annonces officielles de tout
-							le catalogue mondial.
+				<h2 class="section-title">Aide</h2>
+				<button
+					type="button"
+					class="surface-soft flex w-full items-center gap-3 p-3.5 text-left transition-normal hover:border-white/20"
+					@click="showDocs = true"
+				>
+					<span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand/15 text-brandSoft">
+						<AppIcon name="info" :size="17" />
+					</span>
+					<span class="min-w-0 flex-1">
+						<span class="block text-sm font-semibold text-white">Documentation</span>
+						<span class="block text-[11px] text-white/45">
+							Sources, lecture gratuite, téléchargements et confidentialité.
 						</span>
-					</li>
-					<li class="flex gap-2">
-						<AppIcon name="archive" :size="16" class="mt-0.5 text-emerald-400" />
-						<span>
-							<strong class="text-white">Internet Archive</strong> — films du domaine public ou diffusés librement :
-							lecture directe et gratuite dans Movie Box.
-						</span>
-					</li>
-					<li class="flex gap-2">
-						<AppIcon name="link" :size="16" class="mt-0.5 text-white/40" />
-						<span>
-							<strong class="text-white">Plateformes légales</strong> — JustWatch, Pluto TV, Tubi, Plex, ARTE… dont
-							les offres gratuites avec publicité.
-						</span>
-					</li>
-				</ul>
-
-				<p class="rounded-xl border border-white/5 bg-white/[0.03] p-3 text-[11px] text-white/45">
-					Movie Box n'héberge ni ne diffuse d'œuvre protégée par le droit d'auteur : l'application référence les
-					contenus et redirige vers les ayants droit, ce qui garantit sa conformité et sa pérennité.
-				</p>
+					</span>
+					<AppIcon name="chevronRight" :size="16" class="text-white/30" />
+				</button>
 			</div>
+
+			<DocumentationModal v-if="showDocs" @close="showDocs = false" />
 
 			<div class="surface space-y-2 p-4">
 				<h2 class="section-title">État du serveur</h2>

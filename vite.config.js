@@ -5,6 +5,7 @@ import vue from "@vitejs/plugin-vue";
 export default defineConfig({
 	plugins: [vue()],
 	server: {
+		host: true,
 		port: 5173,
 		// Toutes les requetes /api sont proxifiees vers le backend Rust (dossier server-rust/).
 		proxy: {

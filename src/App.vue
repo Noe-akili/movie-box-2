@@ -19,7 +19,7 @@ const showChrome = computed(() => route.meta?.chrome !== false);
 const overlayTopBar = computed(() => route.meta?.overlay === true);
 
 // Ordre des onglets : sert a donner un sens de glissement entre les transitions.
-const TAB_ORDER = ["home", "movies", "series", "free", "library", "downloads"];
+const TAB_ORDER = ["home", "movies", "series", "free", "library", "downloads", "profile"];
 const tabIndex = (name) => TAB_ORDER.indexOf(name);
 const transitionName = ref("fade-up");
 

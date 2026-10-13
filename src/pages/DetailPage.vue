@@ -47,6 +47,14 @@ const mainChips = computed(() => {
 	].filter(Boolean);
 });
 
+const episodeMeta = (episode) => {
+	const streams = episode.streams || [];
+	const best = streams[0] || {};
+	return [best.quality, best.format, formatSize(best.size), streams.length ? `${streams.length} fichier(s)` : null]
+		.filter(Boolean)
+		.join(" • ");
+};
+
 const freeProviders = computed(() => (title.value?.providers?.groups || []).filter((group) => group.free));
 const paidProviders = computed(() => (title.value?.providers?.groups || []).filter((group) => !group.free));
 const legalLinks = computed(() => title.value?.legalLinks || []);
@@ -212,20 +220,11 @@ watch(
 								</RouterLink>
 
 								<DownloadButton
-									v-if="free && !archiveEpisodes.length && title.streams?.length"
+									v-if="free && title.streams?.length"
 									:item="title"
 									:stream="title.streams[0]"
 									label="Télécharger"
 								/>
-
-								<a
-									v-if="free && archiveEpisodes.length"
-									href="#episodes"
-									class="btn btn-inverse px-4 py-3"
-								>
-									<AppIcon name="download" :size="18" />
-									<span>Télécharger un épisode</span>
-								</a>
 
 								<button type="button" class="btn btn-inverse px-4 py-3" @click="onToggleFavorite">
 									<AppIcon name="heart" :size="18" :filled="saved" />
@@ -348,13 +347,7 @@ watch(
 				id="episodes"
 				class="mx-auto max-w-[1800px] scroll-mt-24 space-y-4 px-4 pt-10 md:px-6 lg:px-8"
 			>
-				<div>
-					<h2 class="section-title">Épisodes ({{ archiveEpisodes.length }})</h2>
-					<p class="mt-1 max-w-3xl text-xs text-white/40">
-						Série complète libre de droits fournie par Internet Archive : chaque épisode peut être regardé en
-						streaming ou téléchargé sur le serveur Movie Box pour une lecture hors ligne.
-					</p>
-				</div>
+				<h2 class="section-title">Épisodes ({{ archiveEpisodes.length }})</h2>
 
 				<ul class="space-y-2">
 					<li
@@ -365,37 +358,37 @@ watch(
 						<span class="badge bg-white/10 text-white/70">{{ episode.label }}</span>
 
 						<div class="min-w-0 flex-1">
-							<h3 class="line-clamp-1 text-sm font-semibold text-white/90">{{ episode.name }}</h3>
-							<p class="text-[11px] text-white/40">
-								{{
-									[episode.quality, episode.format, formatSize(episode.size), `${episode.streams.length} fichier(s)`]
-										.filter(Boolean)
-										.join(" • ")
-								}}
-							</p>
+							<h3 class="line-clamp-1 text-sm font-semibold text-white/90">
+								{{ episode.name || episode.title || episode.label }}
+							</h3>
+							<p class="text-[11px] text-white/40">{{ episodeMeta(episode) }}</p>
 						</div>
 
 						<div class="flex items-center gap-2">
 							<RouterLink
-								:to="{
-									name: 'watch',
-									params: { mediaType: 'archive', id: title.archiveId },
-									query: { episode: episode.number },
-								}"
+								:to="{ ...watchRoute(title), query: { episode: episode.number } }"
 								class="btn btn-inverse px-3 py-2 text-xs"
 							>
 								<AppIcon name="play" :size="14" filled />
 								<span>Lire</span>
 							</RouterLink>
 
-							<DownloadButton :item="title" :stream="episode" :episode="episode" compact />
+							<DownloadButton
+								:item="title"
+								:stream="episode.streams?.[0] || null"
+								:episode="episode"
+								compact
+							/>
 						</div>
 					</li>
 				</ul>
 			</section>
 
-			<!-- Saisons et épisodes (séries) -->
-			<section v-if="title.seasons?.length" class="mx-auto max-w-[1800px] space-y-4 px-4 pt-10 md:px-6 lg:px-8">
+			<!-- Saisons et épisodes (séries TMDB) -->
+			<section
+				v-if="title.tmdbId && title.seasons?.length"
+				class="mx-auto max-w-[1800px] space-y-4 px-4 pt-10 md:px-6 lg:px-8"
+			>
 				<div class="flex items-end justify-between gap-4">
 					<h2 class="section-title">Épisodes</h2>
 					<span class="text-xs text-white/40">{{ episodes.length }} épisodes affichés</span>
@@ -465,13 +458,7 @@ watch(
 
 			<!-- Où regarder légalement -->
 			<section v-if="title.mediaType !== 'archive'" class="mx-auto max-w-[1800px] space-y-4 px-4 pt-10 md:px-6 lg:px-8">
-				<div>
-					<h2 class="section-title">Où regarder gratuitement (légalement)</h2>
-					<p class="mt-1 max-w-3xl text-xs text-white/40">
-						Movie Box n'héberge aucune œuvre protégée : l'application t'oriente vers les plateformes officielles et
-						mets en avant les offres gratuites financées par la publicité.
-					</p>
-				</div>
+				<h2 class="section-title">Où regarder gratuitement (légalement)</h2>
 
 				<div v-if="freeProviders.length" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 					<div v-for="group in freeProviders" :key="group.label" class="surface p-4">
@@ -558,17 +545,6 @@ watch(
 					<AppIcon name="external" :size="13" />
 				</a>
 
-				<p class="rounded-xl border border-white/5 bg-white/[0.03] p-3 text-[11px] text-white/45">
-					<span class="mr-1 inline-flex align-middle text-white/50"><AppIcon name="download" :size="13" /></span>
-					Le téléchargement local concerne les œuvres libres de droits (lecture hors ligne, sans compte).
-					<RouterLink
-						:to="{ path: '/free', query: { q: title.title } }"
-						class="text-brandSoft hover:underline"
-					>
-						Chercher une version gratuite de « {{ title.title }} »
-					</RouterLink>
-					puis lance le téléchargement depuis sa fiche.
-				</p>
 			</section>
 
 			<!-- Source et licence (films libres) -->

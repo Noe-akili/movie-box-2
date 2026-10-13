@@ -149,7 +149,7 @@ onBeforeUnmount(stop);
 						v-for="entry in meta"
 						:key="entry"
 						class="badge bg-white/10 text-white/80 backdrop-blur"
-						:class="entry === 'GRATUIT' ? 'badge-free' : entry.startsWith('★') ? 'text-gold' : ''"
+						:class="entry === 'GRATUIT' ? 'badge-free' : String(entry).startsWith('★') ? 'text-gold' : ''"
 					>
 						{{ entry }}
 					</span>

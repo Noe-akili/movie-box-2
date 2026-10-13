@@ -54,7 +54,7 @@ async fn internal_fetch(path: &str, query: &[(&str, String)], ttl_ms: u64) -> Re
 
 	let result = cache()
 		.cached(&key, ttl_ms, || async {
-			let value = fetch_json(&url, 8_000, 1, &[]).await?;
+			let value = fetch_json(&url, 20_000, 1, &[]).await?;
 			Ok(Arc::new(value))
 		})
 		.await;

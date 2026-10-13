@@ -21,8 +21,6 @@ const confirming = ref(false);
 const visible = computed(() => (activeTab.value === "pending" ? pendingItems.value : completedItems.value));
 const usedBytes = computed(() => (summary.value.completedBytes || 0) + (summary.value.activeBytes || 0));
 const usedLabel = computed(() => formatSize(usedBytes.value));
-const freeLabel = computed(() => (summary.value.freeBytes ? formatSize(summary.value.freeBytes) : null));
-const limitLabel = computed(() => (summary.value.maxBytes ? formatSize(summary.value.maxBytes) : null));
 const badgeFor = (tab) => (tab === "pending" ? pendingItems.value.length : completedItems.value.length);
 
 const onClearCompleted = async () => {
@@ -95,14 +93,6 @@ onMounted(() => refresh());
 		</header>
 
 		<section class="mx-auto max-w-[1800px] space-y-4 px-4 py-6 md:px-6 lg:px-8">
-			<p class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200/80">
-				<strong>100 % légal :</strong> seuls les films et les épisodes de séries <em>libres de droits</em>
-				(Internet Archive : domaine public ou diffusion autorisée) peuvent être téléchargés. Le backend les stocke
-				sur son disque, tu peux ensuite les lire hors ligne ou les enregistrer sur ton appareil.
-				<span v-if="freeLabel">Espace disque libre : {{ freeLabel }}.</span>
-				<span v-if="limitLabel">Taille maximale par fichier : {{ limitLabel }}.</span>
-			</p>
-
 			<p v-if="lastError" class="rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/80">
 				{{ lastError }}
 			</p>
