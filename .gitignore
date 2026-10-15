@@ -16,6 +16,11 @@ dist-ssr
 server-rust/target
 server-rust/.env
 
+# Tauri
+src-tauri/target
+# Projet Android genere (recree par `tauri android init`, cf. .github/workflows)
+src-tauri/gen
+
 # Fichiers telecharges par le backend (volumineux, propres a la machine)
 server-rust/downloads
 

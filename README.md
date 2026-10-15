@@ -31,15 +31,23 @@ movie-box-2/
 ├── server-rust/               # BACKEND (Rust + Axum)
 │   ├── downloads/             # fichiers téléchargés + manifest.json (non versionné)
 │   └── src/
+│       ├── http.rs, lib.rs    # serveur Axum partagé (binaire autonome + Tauri)
 │       ├── routes/api.rs      # /api/home, /api/search, /api/discover, /api/free, /api/title…
 │       ├── routes/downloads.rs# /api/downloads (lancer, suivre, lire, supprimer)
 │       ├── services/tmdb.rs   # catalogue mondial (cache mémoire + repli anglais)
 │       ├── services/archive.rs# films et séries libres de droits (Internet Archive) + détection des épisodes
 │       ├── services/commons.rs# films libres (Wikimedia Commons)
-│       ├── services/internal.rs # source moviebox-internal-api
+│       ├── services/moviebox.rs # source MovieBox portée nativement (remplace le service Python)
+│       ├── services/internal.rs # source interne (moviebox)
 │       ├── services/downloads.rs # stockage local, progression, reprise (HTTP Range), file d'attente
 │       └── services/providers.rs # plateformes légales (dont offres gratuites)
+├── src-tauri/                 # APPLICATION ANDROID/DESKTOP (Tauri v2)
+│   ├── src/                   # lance le serveur Rust embarqué + commande `server_origin`
+│   ├── build.rs               # intègre la clé TMDB du .env dans le binaire
+│   └── tauri.conf.json        # configuration (identifier com.moviebox.app, frontendDist ../dist)
+├── .github/workflows/android.yml # build de l'APK (tout est géré par GitHub)
 ├── scripts/dev.mjs            # npm run dev:all (API Rust + front en une seule commande)
+├── scripts/patch-android-manifest.mjs # autorise le cleartext vers le serveur embarqué
 └── design/                    # captures de référence (non versionné)
 ```
 
@@ -82,6 +90,37 @@ Variables d'environnement (fichier `.env` à la racine) :
 | `DOWNLOAD_CONCURRENCY` | `2` | téléchargements simultanés (1 à 4) |
 | `DOWNLOAD_MAX_BYTES` | `8589934592` (8 Go) | taille maximale d'un fichier téléchargeable |
 | `DOWNLOAD_MAX_QUEUE` | `60` | nombre maximal de téléchargements conservés |
+
+## 📱 Android (APK)
+
+L'application peut être empaquetée en **APK Android** via [Tauri v2](https://v2.tauri.app/).
+Le backend Rust est **embarqué dans le processus de l'app** : au démarrage, il écoute sur
+`http://127.0.0.1:5174` et l'interface (WebView) l'appelle directement. **Aucun service
+Python n'est nécessaire** : la source MovieBox est portée nativement en Rust
+(`server-rust/src/services/moviebox.rs`).
+
+La compilation est **entièrement déléguée à GitHub Actions**
+(`.github/workflows/android.yml`) : JDK, SDK/NDK Android, cibles Rust et dépendances npm sont
+installés par le workflow. **Rien n'est requis en local.**
+
+1. pousser sur `main` (ou lancer le workflow *Build Android APK* manuellement) ;
+2. ouvrir l'artefact **`movie-box-android-debug`** de l'exécution ;
+3. installer `app-<abi>-debug.apk` sur le téléphone (APK **debug déjà signé**, sideload
+   autorisé au besoin : *Paramètres → Sécurité → Sources inconnues*).
+
+Détails de l'environnement de build (épinglés dans le workflow) : AGP `9.3.1`, Gradle `9.5.0`,
+NDK `28.2.13676358`, JDK 17, `compileSdk`/`targetSdk` 37, `minSdk` 21, cible `aarch64`.
+
+Points spécifiques à Android :
+
+- le manifeste est patché par `scripts/patch-android-manifest.mjs` pour autoriser le
+  **cleartext** (`android:usesCleartextTraffic="true"`) vers `127.0.0.1` (bloqué par défaut
+  depuis Android 9) ;
+- la clé TMDB du `.env` est **intégrée au binaire** à la compilation
+  (`src-tauri/build.rs` → `cargo:rustc-env`), car aucun `.env` n'existe sur l'appareil ;
+- le frontend résout dynamiquement l'origine du serveur embarqué
+  (`src/main.js` → `server_origin`, puis `src/api/client.js` → `apiBase()` / `mediaUrl()`),
+  y compris pour les balises `<video>` et les liens de téléchargement.
 
 ## 🔌 API (backend Rust)
 

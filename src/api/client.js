@@ -3,13 +3,33 @@ import { usePending } from "../stores/loading";
 import { useSettings } from "../stores/settings";
 
 /**
+ * Origine du serveur embarque, definie au demarrage par l'app Tauri Android
+ * (`window.__SERVER_ORIGIN__`, ex. « http://127.0.0.1:5174 »). Vide en web.
+ */
+export const serverOrigin = () =>
+	typeof window !== "undefined" && window.__SERVER_ORIGIN__ ? window.__SERVER_ORIGIN__ : "";
+
+/** Base de l'API : origine runtime (Android) sinon chemin relatif (web). */
+export const apiBase = () =>
+	(typeof window !== "undefined" && window.__API_BASE_URL__) ||
+	import.meta.env.VITE_API_BASE_URL ||
+	`${serverOrigin()}/api`;
+
+/**
+ * Absolutise une URL servie par notre backend (`/api/...`) pour l'app Android :
+ * sans cela, un `<video src="/api/...">` viserait l'origine `tauri://localhost`.
+ */
+export const mediaUrl = (url) =>
+	url && url.startsWith("/") && serverOrigin() ? `${serverOrigin()}${url}` : url;
+
+/**
  * Client HTTP unique de l'application.
  * - toutes les requetes passent par le backend Rust (/api) : la cle TMDB reste cote serveur
  * - la langue et la region choisies par l'utilisateur sont ajoutees automatiquement
  * - les intercepteurs renvoient directement le JSON (plus de .data a ecrire partout)
  */
 const http = axios.create({
-	baseURL: import.meta.env.VITE_API_BASE_URL || "/api",
+	baseURL: apiBase(),
 	// Largeur sur le budget reponse du serveur (12 s sur /home) : laisse le temps
 	// aux appels plus longs (fiche, saison) sans tomber en timeout premature.
 	timeout: 45_000,
@@ -17,6 +37,9 @@ const http = axios.create({
 
 http.interceptors.request.use((request) => {
 	const settings = useSettings();
+
+	// L'origine du serveur embarque n'est connue qu'apres le bootstrap Tauri.
+	request.baseURL = apiBase();
 
 	request.params = {
 		lang: settings.value.language,
@@ -76,7 +99,9 @@ export const cancelDownload = (id) => http.post(`/downloads/${encodeURIComponent
 export const deleteDownload = (id) => http.delete(`/downloads/${encodeURIComponent(id)}`);
 
 /** URLs directes servies par le backend (lecture du fichier local / enregistrement). */
-export const downloadStreamUrl = (id) => `/api/downloads/${encodeURIComponent(id)}/stream`;
-export const downloadFileUrl = (id) => `/api/downloads/${encodeURIComponent(id)}/file`;
+export const downloadStreamUrl = (id) =>
+	mediaUrl(`/api/downloads/${encodeURIComponent(id)}/stream`);
+export const downloadFileUrl = (id) =>
+	mediaUrl(`/api/downloads/${encodeURIComponent(id)}/file`);
 
 export default http;

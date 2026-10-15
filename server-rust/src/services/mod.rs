@@ -3,5 +3,6 @@ pub mod commons;
 pub mod downloads;
 pub mod free;
 pub mod internal;
+pub mod moviebox;
 pub mod providers;
 pub mod tmdb;

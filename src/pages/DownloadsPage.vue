@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import AppIcon from "../components/AppIcon.vue";
+import DownloadGroup from "../components/DownloadGroup.vue";
 import DownloadRow from "../components/DownloadRow.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { useDownloads } from "../stores/downloads";
@@ -19,6 +20,50 @@ const activeTab = ref("pending");
 const confirming = ref(false);
 
 const visible = computed(() => (activeTab.value === "pending" ? pendingItems.value : completedItems.value));
+
+/**
+ * Les épisodes d'une même série sont rangés dans un « dossier » (The Rookie →
+ * un seul bloc contenant tous ses épisodes). Les films restent des cartes seules.
+ */
+const groups = computed(() => {
+	const map = new Map();
+	const singles = [];
+
+	for (const entry of visible.value) {
+		if (entry.kind === "episode" && entry.seriesTitle) {
+			const key = entry.seriesTitle;
+			if (!map.has(key)) map.set(key, { title: key, entries: [] });
+			map.get(key).entries.push(entry);
+		} else {
+			singles.push(entry);
+		}
+	}
+
+	const result = [];
+	for (const group of map.values()) {
+		// Ordre naturel : saison puis numéro d'épisode.
+		group.entries.sort((a, b) => {
+			const season = (a.seasonNumber || 0) - (b.seasonNumber || 0);
+			if (season !== 0) return season;
+			return (a.episodeNumber || 0) - (b.episodeNumber || 0);
+		});
+		result.push({ type: "series", ...group });
+	}
+
+	for (const entry of singles) result.push({ type: "single", entry });
+
+	return result;
+});
+
+/** Supprime tous les épisodes d'un dossier (confirmation déjà gérée par l'enfant). */
+const onRemoveMany = async (ids) => {
+	try {
+		await Promise.all(ids.map((id) => remove(id)));
+		toast.info("Épisodes supprimés du stockage du serveur");
+	} catch (error) {
+		toast.error(error.message);
+	}
+};
 const usedBytes = computed(() => (summary.value.completedBytes || 0) + (summary.value.activeBytes || 0));
 const usedLabel = computed(() => formatSize(usedBytes.value));
 const badgeFor = (tab) => (tab === "pending" ? pendingItems.value.length : completedItems.value.length);
@@ -97,8 +142,15 @@ onMounted(() => refresh());
 				{{ lastError }}
 			</p>
 
-			<ul v-if="visible.length" class="space-y-3">
-				<DownloadRow v-for="entry in visible" :key="entry.id" :entry="entry" />
+			<ul v-if="groups.length" class="space-y-3">
+				<template v-for="group in groups" :key="group.type === 'series' ? `series-${group.title}` : group.entry.id">
+					<DownloadGroup
+						v-if="group.type === 'series'"
+						:group="group"
+						@remove-many="onRemoveMany"
+					/>
+					<DownloadRow v-else :entry="group.entry" />
+				</template>
 			</ul>
 
 			<div v-else-if="isLoading" class="space-y-3">

@@ -1,11 +1,12 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { downloadStreamUrl, fetchDownload, fetchInternalStreams, fetchTitle } from "../api/client";
+import { downloadStreamUrl, fetchDownload, fetchInternalStreams, fetchTitle, mediaUrl } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import DownloadButton from "../components/DownloadButton.vue";
 import EmptyState from "../components/EmptyState.vue";
 import MediaRow from "../components/MediaRow.vue";
+import { useDownloads } from "../stores/downloads";
 import { useLibrary } from "../stores/library";
 import { toast } from "../stores/toast";
 import { formatCount, formatSize } from "../util/format";
@@ -43,6 +44,33 @@ const legalLinks = computed(() => title.value?.legalLinks || []);
 const related = computed(() => title.value?.related || title.value?.similar || []);
 const saved = computed(() => (title.value ? isFavorite(title.value) : false));
 const isLocal = computed(() => props.mediaType === "local");
+const { items: localDownloads } = useDownloads();
+// Entree brute du fichier local en cours (permet de trouver l'episode suivant).
+const localEntry = ref(null);
+
+const isSameSeries = (entry, target) =>
+	entry.kind === "episode" && target?.kind === "episode" && entry.seriesTitle === target.seriesTitle;
+
+/**
+ * Épisode suivant de la même série parmi les fichiers déjà téléchargés :
+ * ordre naturel (saison, numéro), avec retour au début en fin de série.
+ */
+const nextLocalEpisode = computed(() => {
+	if (!isLocal.value || !localEntry.value?.seriesTitle) return null;
+
+	const siblings = localDownloads.value
+		.filter((entry) => isSameSeries(entry, localEntry.value) && entry.status === "completed")
+		.sort(
+			(a, b) =>
+				(a.seasonNumber || 0) - (b.seasonNumber || 0) ||
+				(a.episodeNumber || 0) - (b.episodeNumber || 0),
+		);
+
+	if (siblings.length < 2) return null;
+	const index = siblings.findIndex((entry) => entry.id === localEntry.value.id);
+	if (index === -1) return siblings[0];
+	return siblings[(index + 1) % siblings.length];
+});
 
 const relatedHref = computed(() => ({
 	path: "/free",
@@ -112,6 +140,7 @@ const load = async () => {
 	isLoading.value = true;
 	errorMessage.value = null;
 	title.value = null;
+	localEntry.value = null;
 	selectedStream.value = 0;
 	selectedEpisode.value = 0;
 	useEmbed.value = false;
@@ -119,6 +148,7 @@ const load = async () => {
 	try {
 		if (isLocal.value) {
 			const entry = await fetchDownload(props.id);
+			localEntry.value = entry;
 			title.value = buildLocalTitle(entry);
 			return;
 		}
@@ -169,6 +199,17 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 					}}
 				</p>
 			</div>
+			<!-- Épisode suivant de la série (fichiers déjà téléchargés) -->
+			<RouterLink
+				v-if="nextLocalEpisode"
+				:to="{ name: 'watch-local', params: { id: nextLocalEpisode.id } }"
+				class="btn btn-inverse h-9 shrink-0 px-3 text-xs"
+				:title="`Épisode suivant : ${nextLocalEpisode.episodeName || nextLocalEpisode.title}`"
+			>
+				<span>Épisode suivant</span>
+				<AppIcon name="chevronRight" :size="15" />
+			</RouterLink>
+
 			<button
 				v-if="title"
 				type="button"
@@ -202,8 +243,8 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 				<div class="mx-auto aspect-video w-full max-w-[1800px]">
 					<video
 						v-if="free && currentStream && !useEmbed"
-						:key="currentStream.url"
-						:src="currentStream.url"
+						:key="mediaUrl(currentStream.url)"
+						:src="mediaUrl(currentStream.url)"
 						:poster="title.backdrop || title.poster"
 						controls
 						autoplay

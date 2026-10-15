@@ -1,8 +1,9 @@
-//! Client de l'API interne `moviebox-internal-api` (FastAPI, défaut 127.0.0.1:8000).
+//! Source principale MovieBox (portée nativement en Rust, voir `services::moviebox`).
 //!
-//! Convertit les réponses de l'API interne (films / séries / flux CDN) vers le contrat
-//! de données Movie Box : cartes, fiches jouables et flux relus via un proxy local
-//! (`/api/internal/proxy`) qui contourne les contraintes CORS du navigateur.
+//! Convertit les réponses de la source (`/home`, `/search`, `/detail`, `/stream`…)
+//! vers le contrat de données Movie Box : cartes, fiches jouables et flux relus via
+//! un proxy local (`/api/internal/proxy`) qui contourne les contraintes CORS du
+//! navigateur.
 
 use std::sync::Arc;
 
@@ -11,7 +12,6 @@ use serde_json::{json, Value};
 use crate::cache::cache;
 use crate::config::config;
 use crate::error::{ApiError, Result};
-use crate::http::{build_url, fetch_json};
 
 use super::archive::{first_value_str, strip_html};
 use super::providers::{build_legal_links, urlencode};
@@ -40,7 +40,7 @@ pub fn enabled() -> bool {
 	config().internal_api_enabled
 }
 
-/// Appel JSON vers l'API interne avec cache court.
+/// Appel vers la source MovieBox native avec cache court.
 async fn internal_fetch(path: &str, query: &[(&str, String)], ttl_ms: u64) -> Result<Value> {
 	if !enabled() {
 		return Err(ApiError::new(
@@ -49,22 +49,25 @@ async fn internal_fetch(path: &str, query: &[(&str, String)], ttl_ms: u64) -> Re
 		));
 	}
 
-	let url = build_url(&format!("{}{}", config().internal_api_url, path), query);
-	let key = format!("internal:{url}");
+	let key = format!("moviebox:{path}:{query:?}");
+	let path = path.to_string();
+	let owned: Vec<(String, String)> = query
+		.iter()
+		.map(|(name, value)| (name.to_string(), value.clone()))
+		.collect();
 
-	let result = cache()
-		.cached(&key, ttl_ms, || async {
-			let value = fetch_json(&url, 20_000, 1, &[]).await?;
+	let cached = cache()
+		.cached(&key, ttl_ms, move || async move {
+			let borrowed: Vec<(&str, String)> = owned
+				.iter()
+				.map(|(name, value)| (name.as_str(), value.clone()))
+				.collect();
+			let value = crate::services::moviebox::source(&path, &borrowed).await?;
 			Ok(Arc::new(value))
 		})
-		.await;
+		.await?;
 
-	result.map(|value| (*value).clone()).map_err(|_| {
-			ApiError::new(
-				503,
-				"API interne moviebox-internal-api indisponible (lance « python moviebox_api_server.py »)",
-			)
-		})
+	Ok((*cached).clone())
 }
 
 /// Extrait la liste d'éléments d'une réponse hétérogène (`data.list`, `data.items`, tableau…).
@@ -946,16 +949,16 @@ pub async fn title(id: &str) -> Result<Value> {
 		"externalLinks".to_string(),
 		json!([{
 			"id": "internal",
-			"name": "MovieBox (API interne)",
-			"description": "Source du flux : moviebox-internal-api",
-			"url": format!("{}/detail/{}", config().internal_api_url, urlencode(id)),
+			"name": "MovieBox (source principale)",
+			"description": "Source du flux : MovieBox",
+			"url": format!("{}detail/{}", crate::services::moviebox::web_base(), urlencode(id)),
 			"free": true,
 		}]),
 	);
 	result.insert(
 		"streamNotice".to_string(),
 		Value::String(
-			"Flux résolus par l'API interne moviebox-internal-api et relus via le proxy local."
+			"Flux résolus par la source MovieBox et relus via le proxy local."
 				.to_string(),
 		),
 	);
@@ -963,20 +966,15 @@ pub async fn title(id: &str) -> Result<Value> {
 	Ok(Value::Object(result))
 }
 
-/// État de la source interne (utilisé par `/api/health` et `/api/internal/health`).
+/// État de la source (utilisé par `/api/health` et `/api/internal/health`).
 pub async fn health() -> Value {
-	let base = config().internal_api_url.clone();
 	if !enabled() {
-		return json!({ "enabled": false, "reachable": false, "baseUrl": base });
+		return json!({
+			"enabled": false,
+			"reachable": false,
+			"baseUrl": crate::services::moviebox::web_base(),
+		});
 	}
 
-	match internal_fetch("/health", &[], 0).await {
-		Ok(payload) => json!({
-			"enabled": true,
-			"reachable": true,
-			"baseUrl": base,
-			"upstream": payload
-		}),
-		Err(_) => json!({ "enabled": true, "reachable": false, "baseUrl": base }),
-	}
+	crate::services::moviebox::health().await
 }
