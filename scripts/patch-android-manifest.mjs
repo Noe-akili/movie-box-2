@@ -5,10 +5,10 @@ import { fileURLToPath } from "node:url";
 /**
  * Autorise le trafic en clair (cleartext) dans l'APK Android.
  *
- * Le backend Rust embarque ecoute sur `http://127.0.0.1:5174` ; depuis Android 9
- * (API 28) le cleartext est bloque par defaut, ce qui empecherait la WebView et
- * le lecteur video de joindre le serveur local. On ajoute donc
- * `android:usesCleartextTraffic="true"` sur la balise <application>.
+ * Depuis Android 9 (API 28) le cleartext est bloqué par défaut, ce qui couperait
+ * les rares images/médias distants servis en `http://`. L'API elle-même passe
+ * par l'IPC Tauri et le protocole `moviebox://` (aucun socket réseau).
+ * On ajoute donc `android:usesCleartextTraffic="true"` sur la balise <application>.
  *
  * Idempotent : relance sans risque si l'attribut est deja present.
  */

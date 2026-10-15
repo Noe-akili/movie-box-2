@@ -1,18 +1,179 @@
-use std::sync::atomic::{AtomicU16, Ordering};
+//! Application Tauri (Android / desktop) pour Movie Box.
+//!
+//! Le backend Rust (`movie-box-server`) n'ouvre **aucun port réseau** : il est
+//! appelé directement depuis la WebView via deux canaux internes à Tauri —
+//! 1. l'IPC (`invoke("api_request")`) pour toutes les requêtes JSON ;
+//! 2. un protocole d'URL personnalisé (`moviebox://`) pour les flux binaires
+//!    (lecture vidéo, fichiers téléchargés) qui ont besoin d'une vraie URL.
+//!
+//! Aucun serveur `127.0.0.1` n'est utilisé : la WebView Android ne peut pas
+//! joindre de serveur loopback externe.
+
+use axum::body::Body;
+use tauri::http::{Request as HttpRequest, Response as HttpResponse};
 use tauri::Manager;
+use tower::ServiceExt;
 
-/// Port réellement occupé par le serveur embarqué (choisi au démarrage).
-static SERVER_PORT: AtomicU16 = AtomicU16::new(5174);
+/// Origine virtuelle du backend, exposée au frontend (`invoke("server_origin")`).
+///
+/// Sur Android et Windows, un protocole personnalisé est servi sous la forme
+/// `http://<scheme>.localhost` ; sur macOS/Linux sous la forme `<scheme>://localhost`.
+#[cfg(any(target_os = "android", target_os = "windows"))]
+const PROTOCOL_ORIGIN: &str = "http://moviebox.localhost";
+#[cfg(not(any(target_os = "android", target_os = "windows")))]
+const PROTOCOL_ORIGIN: &str = "moviebox://localhost";
 
-/// Origine du backend embarqué, exposée au frontend (`invoke("server_origin")`).
+/// En-têtes relayés depuis la WebView vers le routeur (le reste est ignoré :
+/// `host`, `content-length`, etc. n'ont pas de sens pour un routeur interne).
+const FORWARDED_HEADERS: [&str; 6] = [
+	"range",
+	"if-range",
+	"if-none-match",
+	"if-modified-since",
+	"accept",
+	"accept-language",
+];
+
+/// Backend partagé : le routeur Axum de l'API (catalogue, source interne, proxy).
+struct Backend {
+	router: axum::Router,
+}
+
+/// Réponse JSON de l'IPC.
+#[derive(serde::Serialize)]
+struct ApiResponse {
+	status: u16,
+	body: String,
+}
+
+/// Origine du backend embarqué (utilisée pour construire les URLs média).
 #[tauri::command]
 fn server_origin() -> String {
-	format!("http://127.0.0.1:{}", SERVER_PORT.load(Ordering::Relaxed))
+	PROTOCOL_ORIGIN.to_string()
+}
+
+/// Exécute une requête de l'API contre le routeur Axum, sans passer par le réseau.
+#[tauri::command]
+async fn api_request(
+	backend: tauri::State<'_, Backend>,
+	method: String,
+	path: String,
+	query: Option<String>,
+	body: Option<String>,
+) -> Result<ApiResponse, String> {
+	let uri = match query {
+		Some(query) if !query.is_empty() => format!("{path}?{query}"),
+		_ => path,
+	};
+
+	let method = method
+		.parse::<axum::http::Method>()
+		.map_err(|error| error.to_string())?;
+
+	let request = axum::http::Request::builder()
+		.method(method)
+		.uri(uri)
+		.header(axum::http::header::CONTENT_TYPE, "application/json")
+		.body(Body::from(body.unwrap_or_default()))
+		.map_err(|error| error.to_string())?;
+
+	let response = match backend.router.clone().oneshot(request).await {
+		Ok(response) => response,
+		Err(_) => return Err("routeur API injoignable".to_string()),
+	};
+
+	let status = response.status().as_u16();
+	let bytes = axum::body::to_bytes(response.into_body(), 32 * 1024 * 1024)
+		.await
+		.map_err(|error| error.to_string())?;
+
+	Ok(ApiResponse {
+		status,
+		body: String::from_utf8_lossy(&bytes).into_owned(),
+	})
+}
+
+/// Relaie une requête du protocole `moviebox://` vers le routeur Axum.
+///
+/// Utilisé pour les flux binaires (vidéo, fichiers) : on conserve les en-têtes
+/// `Range`/`If-*` et on renvoie le corps complet (borne imposée par la plage).
+async fn handle_protocol_request(
+	router: axum::Router,
+	request: HttpRequest<Vec<u8>>,
+) -> HttpResponse<Vec<u8>> {
+	let method = request.method().clone();
+	let path_and_query = request
+		.uri()
+		.path_and_query()
+		.map(|value| value.as_str().to_string())
+		.unwrap_or_else(|| "/".to_string());
+
+	let mut builder = axum::http::Request::builder().method(method).uri(path_and_query);
+	if let Some(headers) = builder.headers_mut() {
+		for name in FORWARDED_HEADERS {
+			if let Some(value) = request.headers().get(name) {
+				headers.insert(name, value.clone());
+			}
+		}
+	}
+
+	let axum_request = match builder.body(Body::from(request.into_body())) {
+		Ok(request) => request,
+		Err(error) => {
+			return HttpResponse::builder()
+				.status(400)
+				.body(format!("requête média invalide : {error}").into_bytes())
+				.unwrap();
+		}
+	};
+
+	let response = match router.oneshot(axum_request).await {
+		Ok(response) => response,
+		Err(_) => {
+			return HttpResponse::builder()
+				.status(500)
+				.body("routeur média injoignable".as_bytes().to_vec())
+				.unwrap();
+		}
+	};
+
+	let (parts, body) = response.into_parts();
+	let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+		Ok(bytes) => bytes,
+		Err(error) => {
+			return HttpResponse::builder()
+				.status(502)
+				.body(format!("flux média interrompu : {error}").into_bytes())
+				.unwrap();
+		}
+	};
+
+	let mut out = HttpResponse::builder().status(parts.status);
+	if let Some(headers) = out.headers_mut() {
+		for (name, value) in &parts.headers {
+			headers.insert(name.clone(), value.clone());
+		}
+		// Les flux par plages ne doivent jamais être servis depuis un cache :
+		// une plage mise en cache pour une autre plage donnerait des octets faux.
+		headers.insert(
+			axum::http::header::CACHE_CONTROL,
+			axum::http::HeaderValue::from_static("no-store"),
+		);
+	}
+
+	out.body(bytes.to_vec()).unwrap()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	tauri::Builder::default()
+		.register_asynchronous_uri_scheme_protocol("moviebox", |app, request, responder| {
+			let router = app.state::<Backend>().router.clone();
+			tauri::async_runtime::spawn(async move {
+				let response = handle_protocol_request(router, request).await;
+				responder.respond(response);
+			});
+		})
 		.setup(|app| {
 			// Sur Android, aucun `.env` n'existe : toute la configuration du serveur
 			// est injectée ici, AVANT le premier appel à `config()`.
@@ -31,44 +192,20 @@ pub fn run() {
 				}
 			}
 
-			// Liaison SYNCHRONE (avant le chargement de la WebView) sur un port libre :
-			// le serveur est joignable dès le premier appel de l'interface, et deux
-			// instances de l'app ne se marchent pas dessus.
-			let listener = match std::net::TcpListener::bind(("127.0.0.1", 0)) {
-				Ok(listener) => listener,
-				Err(error) => {
-					eprintln!("[movie-box] liaison du serveur embarqué impossible : {error}");
-					return Ok(());
-				}
-			};
-			let _ = listener.set_nonblocking(true);
-			if let Ok(addr) = listener.local_addr() {
-				SERVER_PORT.store(addr.port(), Ordering::Relaxed);
-				std::env::set_var("PORT", addr.port().to_string());
-			}
-
+			// Le routeur est construit une fois puis partagé par l'IPC et le
+			// protocole média.
 			let dist_dir = data_dir.join("web");
+			let router = movie_box_server::app(dist_dir);
+			app.manage(Backend { router });
 
-			// Le serveur (et l'initialisation des téléchargements, qui lance des
-			// tâches tokio) tourne dans le runtime async de Tauri.
+			// Reprise des téléchargements (tâches tokio) dans le runtime de Tauri.
 			tauri::async_runtime::spawn(async move {
 				movie_box_server::init_state();
-
-				match tokio::net::TcpListener::from_std(listener) {
-					Ok(listener) => {
-						if let Err(error) = movie_box_server::serve(listener, dist_dir).await {
-							eprintln!("[movie-box] serveur embarqué arrêté : {error}");
-						}
-					}
-					Err(error) => {
-						eprintln!("[movie-box] conversion du listener impossible : {error}");
-					}
-				}
 			});
 
 			Ok(())
 		})
-		.invoke_handler(tauri::generate_handler![server_origin])
+		.invoke_handler(tauri::generate_handler![server_origin, api_request])
 		.run(tauri::generate_context!())
 		.expect("erreur au lancement de Movie Box");
 }

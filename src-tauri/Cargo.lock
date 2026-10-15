@@ -2077,12 +2077,14 @@ dependencies = [
 name = "movie-box"
 version = "1.0.0"
 dependencies = [
+ "axum",
  "movie-box-server",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tokio",
+ "tower",
 ]
 
 [[package]]

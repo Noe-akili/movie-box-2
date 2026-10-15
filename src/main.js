@@ -6,10 +6,11 @@ import "./index.css";
 /**
  * Démarrage de l'application.
  *
- * Sur Android (Tauri), le backend Rust est embarqué dans le processus de l'app
- * et écoute sur `127.0.0.1:<port>`. On interroge Tauri pour connaître cette
- * origine avant de monter l'app, afin que le client HTTP (`src/api/client.js`)
- * et les balises `<video>` visent le bon serveur.
+ * Sur Android (Tauri), le backend Rust est embarqué dans le processus de l'app.
+ * Les appels API passent par l'IPC (aucun serveur réseau) et les flux média par
+ * le protocole `moviebox://`. On interroge Tauri pour connaître cette origine
+ * virtuelle avant de monter l'app, afin que les balises `<video>` visent le bon
+ * protocole.
  */
 async function bootstrap() {
 	const tauri = window.__TAURI__;

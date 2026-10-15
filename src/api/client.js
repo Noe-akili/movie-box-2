@@ -3,8 +3,12 @@ import { usePending } from "../stores/loading";
 import { useSettings } from "../stores/settings";
 
 /**
- * Origine du serveur embarque, definie au demarrage par l'app Tauri Android
- * (`window.__SERVER_ORIGIN__`, ex. « http://127.0.0.1:5174 »). Vide en web.
+ * Origine virtuelle du backend embarqué, définie au démarrage par l'app Tauri
+ * (`window.__SERVER_ORIGIN__`, ex. « http://moviebox.localhost »). Vide en web.
+ *
+ * Aucun serveur `127.0.0.1` n'est utilisé : la WebView Android ne peut pas
+ * joindre de serveur loopback externe. L'API passe par l'IPC Tauri et les flux
+ * média par le protocole `moviebox://`.
  */
 export const serverOrigin = () =>
 	typeof window !== "undefined" && window.__SERVER_ORIGIN__ ? window.__SERVER_ORIGIN__ : "";
@@ -16,24 +20,117 @@ export const apiBase = () =>
 	`${serverOrigin()}/api`;
 
 /**
- * Absolutise une URL servie par notre backend (`/api/...`) pour l'app Android :
- * sans cela, un `<video src="/api/...">` viserait l'origine `tauri://localhost`.
+ * Absolutise une URL média servie par notre backend (`/api/...`).
+ * Sur Android, elle devient `http://moviebox.localhost/api/...` (protocole Tauri).
  */
 export const mediaUrl = (url) =>
 	url && url.startsWith("/") && serverOrigin() ? `${serverOrigin()}${url}` : url;
 
+/** `invoke` de Tauri, disponible uniquement dans l'app packagée (Android/desktop). */
+const tauriInvoke =
+	typeof window !== "undefined" && window.__TAURI__?.core?.invoke
+		? window.__TAURI__.core.invoke
+		: null;
+
+/** Chemin de la requête, sans domaine (ex. « /api/home »). */
+function requestPath(config) {
+	const full = `${config.baseURL || ""}${config.url || ""}`;
+	try {
+		return new URL(full, "http://localhost").pathname;
+	} catch {
+		return config.url || "/";
+	}
+}
+
+/** Sérialise les paramètres de requête (lang, region, …). */
+function requestQuery(params) {
+	if (!params) return "";
+	const search = new URLSearchParams();
+	for (const [key, value] of Object.entries(params)) {
+		if (value === undefined || value === null) continue;
+		if (Array.isArray(value)) value.forEach((item) => search.append(key, item));
+		else search.append(key, value);
+	}
+	return search.toString();
+}
+
+/**
+ * Adaptateur axios : route toutes les requêtes vers la commande Tauri
+ * `api_request`, qui exécute le routeur Rust en mémoire (aucun réseau).
+ */
+function tauriAdapter(config) {
+	return new Promise((resolve, reject) => {
+		const method = (config.method || "get").toUpperCase();
+		const path = requestPath(config);
+		const query = requestQuery(config.params);
+		const body =
+			typeof config.data === "string"
+				? config.data
+				: config.data !== undefined && config.data !== null
+					? JSON.stringify(config.data)
+					: null;
+
+		tauriInvoke("api_request", { method, path, query, body })
+			.then((result) => {
+				let data = result.body ?? null;
+				if (typeof result.body === "string" && result.body.length > 0) {
+					try {
+						data = JSON.parse(result.body);
+					} catch {
+						data = result.body;
+					}
+				}
+
+				const response = {
+					data,
+					status: result.status,
+					statusText: "",
+					headers: {},
+					config,
+					request: null,
+				};
+
+				const validate =
+					typeof config.validateStatus === "function"
+						? config.validateStatus
+						: (status) => status >= 200 && status < 300;
+
+				if (validate(result.status)) {
+					resolve(response);
+				} else {
+					reject(
+						Object.assign(new Error(`Request failed with status code ${result.status}`), {
+							isAxiosError: true,
+							code: `ERR_${result.status}`,
+							config,
+							response,
+							status: result.status,
+						}),
+					);
+				}
+			})
+			.catch((error) => reject(error));
+	});
+}
+
 /**
  * Client HTTP unique de l'application.
- * - toutes les requetes passent par le backend Rust (/api) : la cle TMDB reste cote serveur
- * - la langue et la region choisies par l'utilisateur sont ajoutees automatiquement
- * - les intercepteurs renvoient directement le JSON (plus de .data a ecrire partout)
+ * - toutes les requêtes passent par le backend Rust (IPC Tauri ou /api sur le web) :
+ *   la clé TMDB reste côté serveur
+ * - la langue et la région choisies par l'utilisateur sont ajoutées automatiquement
+ * - les intercepteurs renvoient directement le JSON (plus de .data à écrire partout)
  */
 const http = axios.create({
 	baseURL: apiBase(),
-	// Largeur sur le budget reponse du serveur (12 s sur /home) : laisse le temps
+	// Largeur sur le budget réponse du serveur (12 s sur /home) : laisse le temps
 	// aux appels plus longs (fiche, saison) sans tomber en timeout premature.
 	timeout: 45_000,
 });
+
+// Dans l'app Tauri, les appels passent par l'IPC (pas d'HTTP loopback).
+if (tauriInvoke) {
+	http.defaults.adapter = tauriAdapter;
+}
 
 http.interceptors.request.use((request) => {
 	const settings = useSettings();
@@ -72,7 +169,7 @@ http.interceptors.response.use(
 				? "Le serveur met trop de temps à répondre. Réessaie dans quelques secondes."
 				: status
 					? `Erreur ${status}`
-					: "Impossible de joindre le serveur Movie Box (lance « npm run dev:all »)");
+					: "Impossible de joindre le serveur Movie Box.");
 
 		return Promise.reject(Object.assign(new Error(message), { status }));
 	},

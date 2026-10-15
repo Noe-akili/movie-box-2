@@ -19,6 +19,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 movie-box-server = { path = "../server-rust" }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros"] }
+# Le backend est appelé en interne (IPC + protocole média) : le routeur Axum est
+# réutilisé directement, sans ouvrir de socket réseau.
+axum = "0.8"
+tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
 opt-level = 2

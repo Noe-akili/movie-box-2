@@ -120,19 +120,20 @@ pub async fn rate_limit(req: Request, next: Next) -> Response {
 
 /// Cache navigateur court sur /api (les téléchargements ne doivent jamais être mis en cache).
 pub async fn api_cache_control(req: Request, next: Next) -> Response {
-	let is_downloads = req.uri().path().starts_with("/api/downloads");
+	let path = req.uri().path();
+	// Les flux (téléchargements et proxy média par plages d'octets) ne doivent
+	// jamais être mis en cache.
+	let uncacheable = path.starts_with("/api/downloads") || path.starts_with("/api/internal/proxy");
 	let mut response = next.run(req).await;
 
-	let value = if is_downloads {
-		"no-store"
-	} else {
-		"public, max-age=60"
-	};
 	response.headers_mut().insert(
 		HeaderName::from_static("cache-control"),
-		HeaderValue::from_static(if is_downloads { "no-store" } else { "public, max-age=60" }),
+		HeaderValue::from_static(if uncacheable {
+			"no-store"
+		} else {
+			"public, max-age=60"
+		}),
 	);
-	let _ = value;
 
 	response
 }
