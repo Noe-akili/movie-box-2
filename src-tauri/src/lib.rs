@@ -167,8 +167,8 @@ async fn handle_protocol_request(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	tauri::Builder::default()
-		.register_asynchronous_uri_scheme_protocol("moviebox", |app, request, responder| {
-			let router = app.state::<Backend>().router.clone();
+		.register_asynchronous_uri_scheme_protocol("moviebox", |context, request, responder| {
+			let router = context.app_handle().state::<Backend>().router.clone();
 			tauri::async_runtime::spawn(async move {
 				let response = handle_protocol_request(router, request).await;
 				responder.respond(response);
