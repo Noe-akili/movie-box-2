@@ -201,7 +201,7 @@ pub fn run() {
 					let response = HttpResponse::builder()
 						.status(503)
 						.header(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
-						.body(b"backend en cours de démarrage".to_vec());
+						.body(b"backend en cours de d\xE9marrage".to_vec());
 					match response {
 						Ok(response) => responder.respond(response),
 						Err(_) => responder.respond(HttpResponse::new(Vec::new())),
@@ -247,7 +247,7 @@ pub fn run() {
 		.unwrap_or_else(|error| {
 			// stdout/stderr de l'app sont redirigés vers logcat (tag
 			// `RustStdoutStderr`) : le message reste visible avec `adb logcat`.
-			eprintln!("[movie-box] échec au lancement : {error}");
+			eprintln!("[movie-box] erreur au lancement : {error}");
 			std::process::abort()
 		});
 }
