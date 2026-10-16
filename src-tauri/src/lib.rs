@@ -10,6 +10,7 @@
 //! joindre de serveur loopback externe.
 
 use axum::body::Body;
+use std::sync::OnceLock;
 use tauri::http::{Request as HttpRequest, Response as HttpResponse};
 use tauri::Manager;
 use tower::ServiceExt;
@@ -35,8 +36,15 @@ const FORWARDED_HEADERS: [&str; 6] = [
 ];
 
 /// Backend partagé : le routeur Axum de l'API (catalogue, source interne, proxy).
+///
+/// L'état est déclaré dès le `Builder` (`Builder::manage`), donc **avant** la
+/// création de la fenêtre/WebView : Tauri crée les fenêtres avant le hook
+/// `setup()`. Une requête `moviebox://` arrivant pendant la initialisation trouve
+/// ici un `OnceLock` vide et reçoit une 503 — au lieu de `state::<Backend>()`
+/// qui, si l'état n'était pas géré, ferait paniquer le thread JNI et **fermerait
+/// l'application Android** (panic = abort via `stop_unwind`).
 struct Backend {
-	router: axum::Router,
+	router: OnceLock<axum::Router>,
 }
 
 /// Réponse JSON de l'IPC.
@@ -61,6 +69,12 @@ async fn api_request(
 	query: Option<String>,
 	body: Option<String>,
 ) -> Result<ApiResponse, String> {
+	let router = backend
+		.router
+		.get()
+		.cloned()
+		.ok_or_else(|| "backend en cours de démarrage, réessaie dans un instant".to_string())?;
+
 	let uri = match query {
 		Some(query) if !query.is_empty() => format!("{path}?{query}"),
 		_ => path,
@@ -77,7 +91,7 @@ async fn api_request(
 		.body(Body::from(body.unwrap_or_default()))
 		.map_err(|error| error.to_string())?;
 
-	let response = match backend.router.clone().oneshot(request).await {
+	let response = match router.oneshot(request).await {
 		Ok(response) => response,
 		Err(_) => return Err("routeur API injoignable".to_string()),
 	};
@@ -167,12 +181,33 @@ async fn handle_protocol_request(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	tauri::Builder::default()
+		// État déclaré AVANT la création de la fenêtre : le gestionnaire du
+		// protocole ne peut jamais paniquer sur un état absent (cf. `Backend`).
+		.manage(Backend {
+			router: OnceLock::new(),
+		})
 		.register_asynchronous_uri_scheme_protocol("moviebox", |context, request, responder| {
-			let router = context.app_handle().state::<Backend>().router.clone();
-			tauri::async_runtime::spawn(async move {
-				let response = handle_protocol_request(router, request).await;
-				responder.respond(response);
-			});
+			let router = context.app_handle().state::<Backend>().router.get().cloned();
+			match router {
+				Some(router) => {
+					tauri::async_runtime::spawn(async move {
+						let response = handle_protocol_request(router, request).await;
+						responder.respond(response);
+					});
+				}
+				// Routeur pas encore publié : on répond au lieu de planter, la
+				// WebView retentera naturellement (images, plages vidéo).
+				None => {
+					let response = HttpResponse::builder()
+						.status(503)
+						.header(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+						.body(b"backend en cours de démarrage".to_vec());
+					match response {
+						Ok(response) => responder.respond(response),
+						Err(_) => responder.respond(HttpResponse::new(Vec::new())),
+					}
+				}
+			}
 		})
 		.setup(|app| {
 			// Sur Android, aucun `.env` n'existe : toute la configuration du serveur
@@ -193,10 +228,12 @@ pub fn run() {
 			}
 
 			// Le routeur est construit une fois puis partagé par l'IPC et le
-			// protocole média.
+			// protocole média. L'état `Backend` est déjà géré par le Builder ;
+			// on ne fait que le publier ici (la fenêtre/WebView étant créée avant
+			// ce hook, une requête trop précoce reçoit une 503 au lieu de planter).
 			let dist_dir = data_dir.join("web");
 			let router = movie_box_server::app(dist_dir);
-			app.manage(Backend { router });
+			let _ = app.state::<Backend>().router.set(router);
 
 			// Reprise des téléchargements (tâches tokio) dans le runtime de Tauri.
 			tauri::async_runtime::spawn(async move {
@@ -207,5 +244,10 @@ pub fn run() {
 		})
 		.invoke_handler(tauri::generate_handler![server_origin, api_request])
 		.run(tauri::generate_context!())
-		.expect("erreur au lancement de Movie Box");
+		.unwrap_or_else(|error| {
+			// stdout/stderr de l'app sont redirigés vers logcat (tag
+			// `RustStdoutStderr`) : le message reste visible avec `adb logcat`.
+			eprintln!("[movie-box] échec au lancement : {error}");
+			std::process::abort()
+		});
 }

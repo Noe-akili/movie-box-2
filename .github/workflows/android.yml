@@ -82,6 +82,11 @@ jobs:
       - name: Initialize Android project
         run: npx tauri android init --ci
 
+      # `tauri android init` ne recopie PAS src-tauri/icons/android/* : sans
+      # cette étape l'APK garde les icônes par défaut du CLI au lieu du logo.
+      - name: Install the app logo as Android launcher icons
+        run: node scripts/install-android-icons.mjs
+
       - name: Patch Android manifest (cleartext -> images/medias distants)
         run: node scripts/patch-android-manifest.mjs
 

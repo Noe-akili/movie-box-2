@@ -31,8 +31,21 @@ if (!existsSync(manifest)) {
 
 const contents = readFileSync(manifest, "utf8");
 
-if (contents.includes("usesCleartextTraffic")) {
-	console.log("Manifest deja patche (usesCleartextTraffic present).");
+// Le template Tauri écrit `android:usesCleartextTraffic="${usesCleartextTraffic}"`
+// (placeholder Gradle) qui vaut "false" en release et "true" en debug. L'ancien
+// test `includes("usesCleartextTraffic")` voyait déjà le placeholder et
+// considérait le manifest comme patché : le trafic en clair restait donc
+// bloqué en release (`http://tauri.localhost` + `http://moviebox.localhost`).
+// On force ici la valeur "true" quelle que soit la forme rencontrée.
+const PLACEHOLDER = /android:usesCleartextTraffic="[^"]*"/;
+
+if (PLACEHOLDER.test(contents)) {
+	if (/android:usesCleartextTraffic="true"/.test(contents)) {
+		console.log("Manifest deja patche (usesCleartextTraffic=true).");
+		process.exit(0);
+	}
+	writeFileSync(manifest, contents.replace(PLACEHOLDER, 'android:usesCleartextTraffic="true"'));
+	console.log('Manifest patche : usesCleartextTraffic="true".');
 	process.exit(0);
 }
 
