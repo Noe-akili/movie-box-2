@@ -6,6 +6,7 @@ import AppIcon from "../components/AppIcon.vue";
 import DownloadButton from "../components/DownloadButton.vue";
 import EmptyState from "../components/EmptyState.vue";
 import MediaRow from "../components/MediaRow.vue";
+import VideoPlayer from "../components/VideoPlayer.vue";
 import { useDownloads } from "../stores/downloads";
 import { useLibrary } from "../stores/library";
 import { toast } from "../stores/toast";
@@ -40,6 +41,13 @@ const streams = computed(() => {
 });
 
 const currentStream = computed(() => streams.value[selectedStream.value] || null);
+// Qualités proposées dans le menu de réglages du lecteur (masqué sous 2 entrées).
+const playerQualities = computed(() =>
+	streams.value.map((stream) => ({
+		html: `${stream.quality || "Auto"} · ${stream.format || "vidéo"}`,
+		url: mediaUrl(stream.url),
+	})),
+);
 const free = computed(() => isFree(title.value));
 const trailer = computed(() => title.value?.trailer || null);
 const legalLinks = computed(() => title.value?.legalLinks || []);
@@ -243,19 +251,15 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 		<template v-else-if="title">
 			<div class="w-full bg-black">
 				<div class="mx-auto aspect-video w-full max-w-[1800px]">
-					<video
+					<VideoPlayer
 						v-if="free && currentStream && !useEmbed"
 						:key="mediaUrl(currentStream.url)"
 						:src="mediaUrl(currentStream.url)"
 						:poster="title.backdrop || title.poster"
-						controls
+						:qualities="playerQualities"
 						autoplay
-						playsinline
-						preload="metadata"
 						class="h-full w-full bg-black"
-					>
-						Votre navigateur ne peut pas lire cette vidéo.
-					</video>
+					/>
 
 					<iframe
 						v-else-if="free && useEmbed"
