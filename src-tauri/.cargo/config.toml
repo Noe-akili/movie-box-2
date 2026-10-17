@@ -1,0 +1,17 @@
+# Cargo — linkers pour la compilation croisée Android (NDK).
+#
+# Sans cette table, la liaison du `.so` peut échouer selon la façon dont le NDK
+# est fourni à Cargo (le CLI Tauri renseigne ces mêmes variables, mais les
+# déclarer ici rend le build déterministe — même approche que `game-lounge`).
+
+[target.aarch64-linux-android]
+linker = "aarch64-linux-android-clang"
+
+[target.armv7-linux-androideabi]
+linker = "armv7a-linux-androideabi-clang"
+
+[target.i686-linux-android]
+linker = "i686-linux-android-clang"
+
+[target.x86_64-linux-android]
+linker = "x86_64-linux-android-clang"

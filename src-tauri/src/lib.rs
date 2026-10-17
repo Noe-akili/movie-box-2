@@ -210,34 +210,53 @@ pub fn run() {
 			}
 		})
 		.setup(|app| {
-			// Sur Android, aucun `.env` n'existe : toute la configuration du serveur
-			// est injectée ici, AVANT le premier appel à `config()`.
-			let data_dir = app
-				.path()
-				.app_data_dir()
-				.unwrap_or_else(|_| std::env::temp_dir().join("movie-box"));
-			let _ = std::fs::create_dir_all(&data_dir);
+			// GARANTIE : une panique pendant l'initialisation ne doit JAMAIS
+			// fermer l'application. `tauri::mobile_entry_point` enveloppe tout
+			// `run()` dans `stop_unwind`, qui transforme la moindre panique du
+			// thread principal en `std::process::abort()` — soit une fermeture
+			// immédiate de l'APK au démarrage (WebView Android fragile au boot).
+			// On rattrape donc l'init ici, comme le projet frère `game-lounge`.
+			let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+				// Sur Android, aucun `.env` n'existe : toute la configuration du serveur
+				// est injectée ici, AVANT le premier appel à `config()`.
+				let data_dir = app
+					.path()
+					.app_data_dir()
+					.unwrap_or_else(|_| std::env::temp_dir().join("movie-box"));
+				let _ = std::fs::create_dir_all(&data_dir);
 
-			std::env::set_var("DOWNLOADS_DIR", data_dir.join("downloads"));
-			std::env::set_var("INTERNAL_API_ENABLED", "true");
+				std::env::set_var("DOWNLOADS_DIR", data_dir.join("downloads"));
+				std::env::set_var("INTERNAL_API_ENABLED", "true");
 
-			if let Some(key) = option_env!("MOVIEBOX_TMDB_API_KEY") {
-				if !key.is_empty() {
-					std::env::set_var("TMDB_API_KEY", key);
+				if let Some(key) = option_env!("MOVIEBOX_TMDB_API_KEY") {
+					if !key.is_empty() {
+						std::env::set_var("TMDB_API_KEY", key);
+					}
 				}
+
+				// Le routeur est construit une fois puis partagé par l'IPC et le
+				// protocole média. L'état `Backend` est déjà géré par le Builder
+				// (donc toujours présent) ; on ne fait que le publier ici (la
+				// fenêtre/WebView étant créée avant ce hook, une requête trop
+				// précoce reçoit une 503 au lieu de planter).
+				let dist_dir = data_dir.join("web");
+				let router = movie_box_server::app(dist_dir);
+				let _ = app.state::<Backend>().router.set(router);
+			}));
+
+			if let Err(payload) = result {
+				eprintln!(
+					"[movie-box] initialisation du backend interrompue (panic rattrapée) : {payload:?}"
+				);
 			}
 
-			// Le routeur est construit une fois puis partagé par l'IPC et le
-			// protocole média. L'état `Backend` est déjà géré par le Builder ;
-			// on ne fait que le publier ici (la fenêtre/WebView étant créée avant
-			// ce hook, une requête trop précoce reçoit une 503 au lieu de planter).
-			let dist_dir = data_dir.join("web");
-			let router = movie_box_server::app(dist_dir);
-			let _ = app.state::<Backend>().router.set(router);
-
 			// Reprise des téléchargements (tâches tokio) dans le runtime de Tauri.
+			// Isolée dans sa propre tâche et protégée : une panique ici ne doit
+			// pas remonter au thread principal (=> abort).
 			tauri::async_runtime::spawn(async move {
-				movie_box_server::init_state();
+				let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+					movie_box_server::init_state,
+				));
 			});
 
 			Ok(())
