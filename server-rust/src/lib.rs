@@ -150,7 +150,7 @@ fn app_router(dist_dir: PathBuf) -> Router {
 		Router::new().fallback_service(serve)
 	} else {
 		Router::new().route(
-			"/*_",
+			"/{*_}",
 			get(|| async move {
 				let body = json!({ "error": { "status": 404, "message": "Frontend absent : lance « npm run dev » (frontend Vite) ou « npm run build »." } });
 				(Response::builder()
