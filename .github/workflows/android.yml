@@ -149,7 +149,9 @@ jobs:
           ls -l "$SO"
           file "$SO" || true
 
-          count() { LC_ALL=C grep -a -o -- "$1" "$SO" | wc -l | tr -d ' '; }
+          # `|| true` : `grep` sort 1 quand il n'y a aucune correspondance, et
+          # `set -o pipefail` ferait alors echouer l'affectation.
+          count() { { LC_ALL=C grep -a -o -- "$1" "$SO" 2>/dev/null || true; } | wc -l | tr -d ' '; }
           SRV="$(count server_origin)"
           API="$(count api_request)"
           ORIGIN="$(count moviebox.localhost)"
