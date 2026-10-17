@@ -22,7 +22,7 @@ export const REGIONS = [
 	{ code: "MA", label: "Maroc" },
 ];
 
-const DEFAULTS = { language: "fr-FR", region: "FR" };
+const DEFAULTS = { language: "fr-FR", region: "FR", developer: false };
 
 const readStored = () => {
 	try {

@@ -221,6 +221,21 @@ export const fetchInternalStreams = (id, params) => http.get(`/internal/stream/$
 export const fetchLegalInfo = () => http.get("/legal");
 export const fetchHealth = () => http.get("/health");
 
+/** Vrai dans la WebView Tauri (l'IPC est alors disponible). */
+export const isTauriRuntime = isTauri;
+
+/**
+ * Récupère le journal de diagnostic du backend Rust (commande `backend_diag`).
+ * Accessible uniquement dans l'application (hors navigateur web).
+ */
+export const fetchBackendDiag = () => {
+	const invoke = tauriInvoke();
+	if (!invoke) {
+		return Promise.reject(new Error("Diagnostic disponible uniquement dans l'application."));
+	}
+	return invoke("backend_diag");
+};
+
 // --- Telechargements : le backend stocke les films et episodes libres de droits ---
 export const fetchDownloads = () => http.get("/downloads");
 export const fetchDownload = (id) => http.get(`/downloads/${encodeURIComponent(id)}`);

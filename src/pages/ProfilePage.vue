@@ -1,6 +1,12 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
-import { fetchHealth } from "../api/client";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import {
+	apiBase,
+	fetchBackendDiag,
+	fetchHealth,
+	isTauriRuntime,
+	serverOrigin,
+} from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import DocumentationModal from "../components/DocumentationModal.vue";
 import { useLibrary } from "../stores/library";
@@ -14,9 +20,30 @@ const health = ref(null);
 const healthError = ref(null);
 const showDocs = ref(false);
 
+const diag = ref(null);
+const diagError = ref(null);
+const diagLoading = ref(false);
+let diagTimer = null;
+
 const stats = computed(() => [
 	{ label: "Favoris", value: favorites.value.length },
 	{ label: "Historique", value: history.value.length },
+]);
+
+const runtimeInfo = computed(() => [
+	{ label: "Runtime Tauri", value: isTauriRuntime() ? "oui" : "non (navigateur)" },
+	{
+		label: "Origine média",
+		value:
+			(typeof window !== "undefined" && window.__SERVER_ORIGIN__) || serverOrigin() || "—",
+	},
+	{ label: "Base API", value: apiBase() || "—" },
+	{ label: "Version Tauri", value: diag.value?.tauriVersion || "—" },
+	{ label: "Plateforme", value: diag.value?.platform || "—" },
+	{
+		label: "Routeur backend",
+		value: diag.value ? (diag.value.routerReady ? "prêt" : "absent") : "—",
+	},
 ]);
 
 const onLanguage = (event) => {
@@ -40,7 +67,49 @@ const checkServer = async () => {
 	}
 };
 
+const setDeveloper = (value) => updateSettings({ developer: value });
+
+const refreshDiag = async () => {
+	diagLoading.value = true;
+	diagError.value = null;
+	try {
+		diag.value = await fetchBackendDiag();
+	} catch (error) {
+		diagError.value = error?.message || String(error);
+	} finally {
+		diagLoading.value = false;
+	}
+};
+
+const copyDiag = async () => {
+	try {
+		await navigator.clipboard.writeText(diag.value?.log || "");
+		toast.success("Journal copié");
+	} catch {
+		toast.error("Copie impossible");
+	}
+};
+
+// Rafraîchissement automatique du journal tant que le mode développeur est actif.
+watch(
+	() => settings.value.developer,
+	(enabled) => {
+		if (diagTimer) {
+			clearInterval(diagTimer);
+			diagTimer = null;
+		}
+		if (enabled) {
+			refreshDiag();
+			diagTimer = setInterval(refreshDiag, 3000);
+		}
+	},
+	{ immediate: true },
+);
+
 onMounted(checkServer);
+onUnmounted(() => {
+	if (diagTimer) clearInterval(diagTimer);
+});
 </script>
 
 
@@ -154,6 +223,71 @@ onMounted(checkServer);
 					<AppIcon name="eye" :size="14" />
 					<span>Revérifier</span>
 				</button>
+			</div>
+
+			<div class="surface space-y-3 p-4">
+				<div class="flex items-center justify-between gap-3">
+					<div>
+						<h2 class="section-title">Développeur</h2>
+						<p class="text-[11px] text-white/40">
+							Journal interne du serveur embarqué (utile en cas d'erreur).
+						</p>
+					</div>
+					<button
+						type="button"
+						class="btn shrink-0 px-3 py-2 text-xs"
+						:class="settings.developer ? 'btn-solid' : 'btn-inverse'"
+						@click="setDeveloper(!settings.developer)"
+					>
+						<AppIcon name="eye" :size="14" />
+						<span>{{ settings.developer ? "Désactiver" : "Activer" }}</span>
+					</button>
+				</div>
+
+				<template v-if="settings.developer">
+					<dl class="grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
+						<div
+							v-for="info in runtimeInfo"
+							:key="info.label"
+							class="flex min-w-0 items-baseline justify-between gap-2 rounded-lg bg-ink px-2.5 py-1.5"
+						>
+							<dt class="shrink-0 text-white/35">{{ info.label }}</dt>
+							<dd class="truncate text-right text-white/75" :title="info.value">
+								{{ info.value }}
+							</dd>
+						</div>
+					</dl>
+
+					<div class="flex flex-wrap gap-2">
+						<button
+							type="button"
+							class="btn btn-inverse px-3 py-2 text-xs"
+							:disabled="diagLoading"
+							@click="refreshDiag"
+						>
+							<AppIcon name="eye" :size="14" />
+							<span>{{ diagLoading ? "Chargement…" : "Rafraîchir" }}</span>
+						</button>
+						<button
+							type="button"
+							class="btn btn-inverse px-3 py-2 text-xs"
+							:disabled="!diag?.log"
+							@click="copyDiag"
+						>
+							<AppIcon name="info" :size="14" />
+							<span>Copier le journal</span>
+						</button>
+					</div>
+
+					<p v-if="diagError" class="text-xs text-brandSoft">{{ diagError }}</p>
+					<pre
+						v-if="diag?.log"
+						class="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-inkLine bg-black/60 p-3 text-[11px] leading-relaxed text-emerald-300/90"
+					>{{ diag.log }}</pre>
+					<p v-else-if="!diagError && !diagLoading" class="text-xs text-white/40">
+						Aucune entrée pour l'instant.
+					</p>
+				</template>
 			</div>
 
 			<p class="text-center text-[11px] text-white/25">Movie Box · version web 1.0.0</p>

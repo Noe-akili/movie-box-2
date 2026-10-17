@@ -9,6 +9,8 @@
 //! Aucun serveur `127.0.0.1` n'est utilisé : la WebView Android ne peut pas
 //! joindre de serveur loopback externe.
 
+mod diag;
+
 use axum::body::Body;
 use std::sync::OnceLock;
 use tauri::http::{Request as HttpRequest, Response as HttpResponse};
@@ -69,11 +71,16 @@ async fn api_request(
 	query: Option<String>,
 	body: Option<String>,
 ) -> Result<ApiResponse, String> {
-	let router = backend
-		.router
-		.get()
-		.cloned()
-		.ok_or_else(|| "backend en cours de démarrage, réessaie dans un instant".to_string())?;
+	let label = format!("{method} {path}");
+
+	let router = match backend.router.get().cloned() {
+		Some(router) => router,
+		None => {
+			let message = "backend en cours de démarrage, réessaie dans un instant".to_string();
+			diag::log(format!("api_request {label} refusée : routeur absent"));
+			return Err(message);
+		}
+	};
 
 	let uri = match query {
 		Some(query) if !query.is_empty() => format!("{path}?{query}"),
@@ -101,10 +108,40 @@ async fn api_request(
 		.await
 		.map_err(|error| error.to_string())?;
 
+	if status >= 400 {
+		diag::log(format!("api_request {label} -> {status}"));
+	}
+
 	Ok(ApiResponse {
 		status,
 		body: String::from_utf8_lossy(&bytes).into_owned(),
 	})
+}
+
+/// Rapport de diagnostic exposé au panneau développeur du frontend.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiagReport {
+	/// Journal mémoire (démarrage, paniques, erreurs IPC).
+	log: String,
+	/// Origine média virtuelle (`http://moviebox.localhost` sur Android).
+	server_origin: String,
+	/// Vrai dès que le routeur Axum a été publié par `setup()`.
+	router_ready: bool,
+	platform: String,
+	tauri_version: String,
+}
+
+/// Renvoie l'état interne du backend pour le mode développeur de l'interface.
+#[tauri::command]
+fn backend_diag(backend: tauri::State<'_, Backend>) -> DiagReport {
+	DiagReport {
+		log: diag::snapshot(),
+		server_origin: PROTOCOL_ORIGIN.to_string(),
+		router_ready: backend.router.get().is_some(),
+		platform: std::env::consts::OS.to_string(),
+		tauri_version: tauri::VERSION.to_string(),
+	}
 }
 
 /// Relaie une requête du protocole `moviebox://` vers le routeur Axum.
@@ -180,6 +217,15 @@ async fn handle_protocol_request(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+	// Le crochet est posé avant tout : une panique (même rattrapée plus bas)
+	// laisse une trace consultable dans le panneau développeur.
+	diag::install_panic_hook();
+	diag::log(format!(
+		"démarrage movie-box (tauri {}, os {})",
+		tauri::VERSION,
+		std::env::consts::OS
+	));
+
 	tauri::Builder::default()
 		// État déclaré AVANT la création de la fenêtre : le gestionnaire du
 		// protocole ne peut jamais paniquer sur un état absent (cf. `Backend`).
@@ -217,6 +263,7 @@ pub fn run() {
 			// immédiate de l'APK au démarrage (WebView Android fragile au boot).
 			// On rattrape donc l'init ici, comme le projet frère `game-lounge`.
 			let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+				diag::log("setup : configuration de l'environnement embarqué");
 				// Sur Android, aucun `.env` n'existe : toute la configuration du serveur
 				// est injectée ici, AVANT le premier appel à `config()`.
 				let data_dir = app
@@ -225,6 +272,7 @@ pub fn run() {
 					.unwrap_or_else(|_| std::env::temp_dir().join("movie-box"));
 				let _ = std::fs::create_dir_all(&data_dir);
 
+				diag::log(format!("setup : dossier de données = {}", data_dir.display()));
 				std::env::set_var("DOWNLOADS_DIR", data_dir.join("downloads"));
 				std::env::set_var("INTERNAL_API_ENABLED", "true");
 
@@ -240,33 +288,47 @@ pub fn run() {
 				// fenêtre/WebView étant créée avant ce hook, une requête trop
 				// précoce reçoit une 503 au lieu de planter).
 				let dist_dir = data_dir.join("web");
+				diag::log(format!(
+					"setup : construction du routeur (dist={})",
+					dist_dir.display()
+				));
 				let router = movie_box_server::app(dist_dir);
 				let _ = app.state::<Backend>().router.set(router);
+				diag::log("setup : routeur publié");
 			}));
 
-			if let Err(payload) = result {
-				eprintln!(
-					"[movie-box] initialisation du backend interrompue (panic rattrapée) : {payload:?}"
-				);
+			match result {
+				Ok(()) => diag::log("setup : terminé"),
+				Err(payload) => diag::log(format!(
+					"setup : panique rattrapée — {}",
+					diag::payload_text(payload.as_ref())
+				)),
 			}
 
 			// Reprise des téléchargements (tâches tokio) dans le runtime de Tauri.
 			// Isolée dans sa propre tâche et protégée : une panique ici ne doit
 			// pas remonter au thread principal (=> abort).
 			tauri::async_runtime::spawn(async move {
-				let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+				diag::log("reprise des téléchargements…");
+				match std::panic::catch_unwind(std::panic::AssertUnwindSafe(
 					movie_box_server::init_state,
-				));
+				)) {
+					Ok(()) => diag::log("téléchargements repris"),
+					Err(payload) => diag::log(format!(
+						"reprise des téléchargements : panique — {}",
+						diag::payload_text(payload.as_ref())
+					)),
+				}
 			});
 
 			Ok(())
 		})
-		.invoke_handler(tauri::generate_handler![server_origin, api_request])
+		.invoke_handler(tauri::generate_handler![server_origin, api_request, backend_diag])
 		.run(tauri::generate_context!())
 		.unwrap_or_else(|error| {
 			// stdout/stderr de l'app sont redirigés vers logcat (tag
 			// `RustStdoutStderr`) : le message reste visible avec `adb logcat`.
-			eprintln!("[movie-box] erreur au lancement : {error}");
+			diag::log(format!("erreur au lancement : {error}"));
 			std::process::abort()
 		});
 }
