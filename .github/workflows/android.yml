@@ -90,20 +90,72 @@ jobs:
       - name: Patch Android manifest (cleartext -> images/medias distants)
         run: node scripts/patch-android-manifest.mjs
 
-      - name: Generate Android signing key
+      # Un keystore stable (secret) signe toutes les versions avec la MEME
+      # signature : les mises a jour s'installent par-dessus l'app existante.
+      # Sans secret, un keystore ephemere est genere (l'app ne pourra se mettre a
+      # jour qu'apres une desinstallation unique).
+      - name: Restore or generate Android signing key
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_TYPE: ${{ secrets.ANDROID_KEYSTORE_TYPE }}
         run: |
-          keytool -genkeypair -v \
-            -keystore "$RUNNER_TEMP/moviebox.keystore" \
-            -storetype JKS \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias moviebox \
-            -storepass moviebox -keypass moviebox \
-            -dname "CN=Movie Box,O=Movie Box,C=US"
+          set -euo pipefail
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ]; then
+            # Keystore stable fourni (PKCS12 par defaut, voir secrets).
+            KEYSTORE="$RUNNER_TEMP/moviebox.p12"
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$KEYSTORE"
+            ALIAS="${ANDROID_KEY_ALIAS:-moviebox}"
+            STOREPASS="${ANDROID_KEYSTORE_PASSWORD:-moviebox}"
+            KEYPASS="${ANDROID_KEY_PASSWORD:-$STOREPASS}"
+            TYPE="${ANDROID_KEYSTORE_TYPE:-PKCS12}"
+            echo "Keystore stable restaure depuis les secrets GitHub (type=$TYPE)."
+          else
+            KEYSTORE="$RUNNER_TEMP/moviebox.keystore"
+            keytool -genkeypair -v \
+              -keystore "$KEYSTORE" \
+              -storetype JKS \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -alias moviebox \
+              -storepass moviebox -keypass moviebox \
+              -dname "CN=Movie Box,O=Movie Box,C=US"
+            ALIAS=moviebox
+            STOREPASS=moviebox
+            KEYPASS=moviebox
+            TYPE=JKS
+            echo "::warning::Aucun secret ANDROID_KEYSTORE_BASE64 : signature ephemere. Les mises a jour exigeront une desinstallation manuelle."
+          fi
+
           cat > src-tauri/gen/android/keystore.properties <<EOF
-          keyAlias=moviebox
-          password=moviebox
-          storeFile=$RUNNER_TEMP/moviebox.keystore
+          keyAlias=$ALIAS
+          password=$STOREPASS
+          storeFile=$KEYSTORE
           EOF
+
+          {
+            echo "ANDROID_KEY_ALIAS=$ALIAS"
+            echo "ANDROID_STORE_PASSWORD=$STOREPASS"
+            echo "ANDROID_KEY_PASSWORD=$KEYPASS"
+            echo "ANDROID_KEYSTORE_PATH=$KEYSTORE"
+            echo "ANDROID_KEYSTORE_TYPE=$TYPE"
+          } >> "$GITHUB_ENV"
+
+      # versionCode croissant a chaque build : Android reconnait la nouvelle
+      # version comme une mise a jour. Non committe (patch ephemere de la CI).
+      - name: Bump Android version (versionCode / versionName)
+        run: |
+          node -e '
+            const fs = require("fs");
+            const file = "src-tauri/tauri.conf.json";
+            const conf = JSON.parse(fs.readFileSync(file, "utf8"));
+            const run = Number(process.env.GITHUB_RUN_NUMBER || 0);
+            conf.bundle.android.versionCode = 1000000 + run;
+            conf.version = `1.0.${run}`;
+            fs.writeFileSync(file, JSON.stringify(conf, null, "\t") + "\n");
+            console.log(`versionName=1.0.${run} versionCode=${1000000 + run}`);
+          '
 
       - name: Build release APK
         run: npx tauri android build --ci --apk -t "${ANDROID_TARGET}"
@@ -117,9 +169,10 @@ jobs:
             UNSIGNED="$(find "$APK_DIR" -type f -name '*-unsigned.apk' | head -1)"
             SIGNED="${UNSIGNED%-unsigned.apk}.apk"
             "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
-              --ks "$RUNNER_TEMP/moviebox.keystore" \
-              --ks-pass pass:moviebox --key-pass pass:moviebox \
-              --ks-key-alias moviebox \
+              --ks "$ANDROID_KEYSTORE_PATH" \
+              --ks-type "$ANDROID_KEYSTORE_TYPE" \
+              --ks-pass "pass:$ANDROID_STORE_PASSWORD" --key-pass "pass:$ANDROID_KEY_PASSWORD" \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
               --out "$SIGNED" "$UNSIGNED"
           fi
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$SIGNED"

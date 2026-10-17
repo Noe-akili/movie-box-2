@@ -92,6 +92,16 @@
 @tailwind utilities;
 
 @layer base {
+	/*
+		Marges sûres (encoche, barre de statut, geste de navigation).
+		`env(...)` couvre iOS et les WebView Android modernes ; `src/main.js`
+		peut redéfinir ces variables en secours sur l'app Android.
+	*/
+	:root {
+		--safe-top: env(safe-area-inset-top, 0px);
+		--safe-bottom: env(safe-area-inset-bottom, 0px);
+	}
+
 	html {
 		@apply bg-ink antialiased;
 		color-scheme: dark;
@@ -314,15 +324,40 @@
 	}
 
 	.pb-nav {
-		padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+		padding-bottom: calc(5.5rem + var(--safe-bottom));
 	}
 
 	.pt-safe {
-		padding-top: env(safe-area-inset-top);
+		padding-top: var(--safe-top);
 	}
 
 	.pb-safe {
-		padding-bottom: env(safe-area-inset-bottom);
+		padding-bottom: var(--safe-bottom);
+	}
+
+	/* Barre supérieure fixe : laisse la place à la barre de statut Android. */
+	.header-safe {
+		padding-top: var(--safe-top);
+	}
+
+	/* Décalage de contenu sous la barre supérieure (5rem = h-16 / 6rem = md:h-[72px]). */
+	.page-top {
+		padding-top: calc(5rem + var(--safe-top));
+	}
+	@media (min-width: 768px) {
+		.page-top {
+			padding-top: calc(6rem + var(--safe-top));
+		}
+	}
+
+	/* Variante plus haute (fiches détail : 6rem / 8rem). */
+	.page-top-xl {
+		padding-top: calc(6rem + var(--safe-top));
+	}
+	@media (min-width: 768px) {
+		.page-top-xl {
+			padding-top: calc(8rem + var(--safe-top));
+		}
 	}
 }
 

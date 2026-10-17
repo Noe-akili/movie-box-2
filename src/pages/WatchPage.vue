@@ -185,7 +185,7 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 
 <template>
 	<div class="min-h-screen bg-ink pb-nav">
-		<header class="sticky top-0 z-30 flex items-center gap-3 border-b border-white/5 bg-ink/95 px-4 py-3 backdrop-blur-xl md:px-6">
+		<header class="header-safe sticky top-0 z-30 flex items-center gap-3 border-b border-white/5 bg-ink/95 px-4 py-3 backdrop-blur-xl md:px-6">
 			<button type="button" class="icon-btn h-9 w-9" aria-label="Retour" @click="goBack">
 				<AppIcon name="arrowLeft" :size="17" />
 			</button>

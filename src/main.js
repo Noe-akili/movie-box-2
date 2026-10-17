@@ -27,6 +27,44 @@ async function waitForTauri(timeoutMs = 3000) {
 	return window.__TAURI__ ?? null;
 }
 
+/**
+ * Lit la valeur effective d'un encart sûr (`env(safe-area-inset-*)`) via un
+ * élément sonde : `getComputedStyle` résout `env()` en pixels, ce qui permet de
+ * détecter les WebView qui ne l'exposent pas.
+ */
+function readEnvInset(side) {
+	if (typeof document === "undefined") return 0;
+	const probe = document.createElement("div");
+	probe.style.cssText = `position:fixed;top:0;left:0;width:0;visibility:hidden;pointer-events:none;padding-${side}:env(safe-area-inset-${side},0px)`;
+	document.body.appendChild(probe);
+	const property = side === "top" ? "paddingTop" : "paddingBottom";
+	const value = parseFloat(getComputedStyle(probe)[property]) || 0;
+	probe.remove();
+	return value;
+}
+
+/**
+ * Applique les encarts sûrs à la racine CSS (`--safe-top` / `--safe-bottom`).
+ *
+ * `env()` couvre iOS et les WebView Android récentes. Sur les WebView Android
+ * qui ne remontent pas l'encart (barre de statut), on pose un repli pour que la
+ * barre supérieure ne passe pas sous la barre de statut de l'appareil.
+ */
+function applySafeAreaInsets() {
+	if (typeof document === "undefined" || typeof navigator === "undefined") return;
+	const root = document.documentElement;
+
+	const top = readEnvInset("top");
+	const bottom = readEnvInset("bottom");
+	if (top > 0) root.style.setProperty("--safe-top", `${top}px`);
+	if (bottom > 0) root.style.setProperty("--safe-bottom", `${bottom}px`);
+
+	const isAndroid = /android/i.test(navigator.userAgent);
+	const isTauri = Boolean(window.__TAURI__ || window.__TAURI_INTERNALS__);
+	if (top === 0 && isTauri && isAndroid) root.style.setProperty("--safe-top", "26px");
+	if (bottom === 0 && isTauri && isAndroid) root.style.setProperty("--safe-bottom", "12px");
+}
+
 async function bootstrap() {
 	const tauri = await waitForTauri();
 	const invoke =
@@ -45,6 +83,8 @@ async function bootstrap() {
 			console.error("[movie-box] origine du serveur embarqué indisponible", error);
 		}
 	}
+
+	applySafeAreaInsets();
 
 	createApp(App).use(router).mount("#root");
 	prefetchCommonRoutes();

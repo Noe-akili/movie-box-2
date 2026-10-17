@@ -135,7 +135,7 @@ onMounted(() => load({ reset: true }));
 
 <template>
 	<div class="pb-nav">
-		<header class="space-y-3 border-b border-white/5 bg-inkSoft/60 px-4 pb-4 pt-20 md:px-6 md:pt-24 lg:px-8">
+		<header class="page-top space-y-3 border-b border-white/5 bg-inkSoft/60 px-4 pb-4 md:px-6 lg:px-8">
 			<div class="mx-auto max-w-[1800px] space-y-3">
 				<div class="flex items-center gap-3">
 					<span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-emerald-500/15 text-emerald-400">

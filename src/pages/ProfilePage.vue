@@ -115,7 +115,7 @@ onUnmounted(() => {
 
 <template>
 	<div class="pb-nav">
-		<header class="border-b border-white/5 bg-inkSoft/60 px-4 pb-6 pt-20 md:px-6 md:pt-24 lg:px-8">
+		<header class="page-top border-b border-white/5 bg-inkSoft/60 px-4 pb-6 md:px-6 lg:px-8">
 			<div class="mx-auto flex max-w-3xl items-center gap-4">
 				<span class="grid h-14 w-14 place-items-center rounded-2xl bg-brand-gradient text-white shadow-glow">
 					<AppIcon name="user" :size="26" />

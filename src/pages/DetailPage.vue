@@ -180,7 +180,7 @@ watch(
 					<div class="h-full w-full bg-hero-scrim"></div>
 				</div>
 
-				<div class="mx-auto max-w-[1800px] px-4 pt-24 md:px-6 md:pt-32 lg:px-8">
+				<div class="page-top-xl mx-auto max-w-[1800px] px-4 md:px-6 lg:px-8">
 					<div class="flex flex-col gap-5 sm:flex-row sm:gap-7">
 						<img
 							v-if="title.poster"

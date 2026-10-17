@@ -37,7 +37,7 @@ const isActive = (to) => (to === "/" ? route.path === "/" : route.path.startsWit
 
 <template>
 	<header
-		class="fixed inset-x-0 top-0 z-40 transition-all duration-300"
+		class="header-safe fixed inset-x-0 top-0 z-40 transition-all duration-300"
 		:class="
 			props.overlay && !scrolled
 				? 'bg-gradient-to-b from-inkDeep/95 via-ink/45 to-transparent'

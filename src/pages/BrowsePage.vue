@@ -160,7 +160,7 @@ watch(
 
 <template>
 	<div class="pb-nav">
-		<header class="border-b border-white/5 bg-inkSoft/60 px-4 pb-5 pt-20 md:px-6 md:pt-24 lg:px-8">
+		<header class="page-top border-b border-white/5 bg-inkSoft/60 px-4 pb-5 md:px-6 lg:px-8">
 			<div class="mx-auto max-w-[1800px] space-y-4">
 				<div>
 					<h1 class="text-2xl font-bold tracking-tight md:text-3xl">{{ pageTitle }}</h1>

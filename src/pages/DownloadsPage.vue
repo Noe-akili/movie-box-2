@@ -93,7 +93,7 @@ onMounted(() => refresh());
 
 <template>
 	<div class="pb-nav">
-		<header class="space-y-4 border-b border-white/5 bg-inkSoft/60 px-4 pb-5 pt-20 md:px-6 md:pt-24 lg:px-8">
+		<header class="page-top space-y-4 border-b border-white/5 bg-inkSoft/60 px-4 pb-5 md:px-6 lg:px-8">
 			<div class="mx-auto flex max-w-[1800px] flex-wrap items-end justify-between gap-4">
 				<div class="flex items-center gap-3">
 					<span class="grid h-11 w-11 place-items-center rounded-2xl bg-brand/15 text-brandSoft">
