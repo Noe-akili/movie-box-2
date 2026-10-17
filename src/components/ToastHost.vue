@@ -11,7 +11,7 @@ const dotClass = (type) =>
 </script>
 
 <template>
-	<div class="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 lg:bottom-8">
+	<div class="pointer-events-none fixed inset-x-0 bottom-24 z-[90] flex justify-center px-4 lg:bottom-8">
 		<div class="w-full max-w-md space-y-2">
 			<TransitionGroup name="toast" tag="div" class="space-y-2">
 				<div

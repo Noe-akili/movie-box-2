@@ -234,7 +234,7 @@ watch(
 									     aux épisodes (séries gratuites) : l'assistant saura les
 									     résoudre saison par saison. -->
 								<DownloadButton
-									v-if="free && (title.streams?.length || archiveEpisodes.length)"
+									v-if="free && (isSeries || title.streams?.length || archiveEpisodes.length)"
 									:item="title"
 									:stream="title.streams?.[0] || null"
 									label="Télécharger"

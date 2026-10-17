@@ -33,11 +33,20 @@ export const isFree = (item) =>
 export const isSeriesTitle = (item) => {
 	if (!item) return false;
 
+	// `kind` fixé par le backend (fiches complètes) est prioritaire sur tout.
 	const kind = String(item.kind || "").toLowerCase();
 	if (kind === "series") return true;
 	if (kind === "movie") return false;
 
 	if (item.mediaType === "tv") return true;
+
+	// Cartes de la source interne : `subjectType` (1 = film, 2 = série) est le
+	// signal fourni par l'API. Sans lui, une série dont le catalogue ne renvoie
+	// ni saison ni compteur d'épisodes était prise pour un film (modale de
+	// téléchargement faussée). On le lit AVANT les replis numériques.
+	const subjectType = Number(item.subjectType);
+	if (subjectType === 2) return true;
+	if (subjectType === 1) return false;
 
 	const episodes = Array.isArray(item.episodes) ? item.episodes.length : Number(item.episodes) || 0;
 	if (episodes > 1) return true;

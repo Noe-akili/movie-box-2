@@ -5,6 +5,7 @@ import { useDownloads } from "../stores/downloads";
 import { toast } from "../stores/toast";
 import { downloadFileName, downloadSourceId } from "../util/downloads";
 import { formatSize } from "../util/format";
+import ActionMenu from "./ActionMenu.vue";
 import AppIcon from "./AppIcon.vue";
 import DownloadDialog from "./DownloadDialog.vue";
 
@@ -72,17 +73,12 @@ const onRetry = async () => {
 			<span>Regarder</span>
 		</RouterLink>
 
-		<a
-			:href="downloadFileUrl(entry.id)"
-			:download="entry.fileName"
-			class="btn btn-inverse"
-			:class="props.compact ? 'px-2.5 py-2' : 'px-3.5 py-3'"
-			:aria-label="`Enregistrer ${entry.fileName} sur l'appareil`"
-			:title="'Enregistrer sur l\'appareil'"
-		>
-			<AppIcon name="download" :size="iconSize" />
-			<span v-if="!props.compact">Sur l'appareil</span>
-		</a>
+		<ActionMenu :label="`Actions pour ${entry.title}`" :width="230">
+			<a :href="downloadFileUrl(entry.id)" :download="entry.fileName" class="menu-item">
+				<AppIcon name="hardDrive" :size="15" />
+				<span>Enregistrer sur l'appareil</span>
+			</a>
+		</ActionMenu>
 	</template>
 
 	<button

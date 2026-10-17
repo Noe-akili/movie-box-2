@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { fetchInternalStreams } from "../api/client";
 import { useDownloads } from "../stores/downloads";
 import { toast } from "../stores/toast";
@@ -11,6 +11,7 @@ import {
 	qualityHeight,
 } from "../util/downloads";
 import { formatSize } from "../util/format";
+import { isSeriesTitle } from "../util/media";
 import AppIcon from "./AppIcon.vue";
 
 /**
@@ -40,15 +41,10 @@ const itemTitle = computed(() => props.item?.title || "Vidéo");
 // cartes du catalogue : on ne garde que le cas exploitable par l'assistant.
 const episodes = computed(() => (Array.isArray(props.item?.episodes) ? props.item.episodes : []));
 
-// Type réel du titre, déduit des données de l'API (kind, épisodes, mediaType) :
-// une série gratuite ne doit jamais être prise pour un film.
-const isSeries = computed(
-	() =>
-		episodes.value.length > 0 ||
-		props.item?.kind === "series" ||
-		props.item?.mediaType === "tv" ||
-		Boolean(props.episode),
-);
+// Type réel du titre : on s'appuie sur l'unique source de vérité `isSeriesTitle`
+// (kind, mediaType, subjectType, saisons/épisodes). Un épisode explicite force la
+// branche série. Une série gratuite ne doit jamais être prise pour un film.
+const isSeries = computed(() => isSeriesTitle(props.item) || Boolean(props.episode));
 
 // Assistant saison/épisodes seulement si des épisodes sont réellement listés :
 // sinon on retombe sur le téléchargement direct du flux du titre (cas d'une série
@@ -376,8 +372,39 @@ const primaryLabel = computed(() => {
 	return props.label;
 });
 
+const dialogRef = ref(null);
+let previousFocus = null;
+
+const FOCUSABLE =
+	'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Retient le focus clavier à l'intérieur de la modale (accessibilité). */
+const trapFocus = (event) => {
+	if (event.key !== "Tab" || !dialogRef.value) return;
+
+	const nodes = Array.from(dialogRef.value.querySelectorAll(FOCUSABLE)).filter(
+		(element) => element.offsetParent !== null || element === document.activeElement,
+	);
+	if (!nodes.length) return;
+
+	const first = nodes[0];
+	const last = nodes[nodes.length - 1];
+
+	if (event.shiftKey && document.activeElement === first) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && document.activeElement === last) {
+		event.preventDefault();
+		first.focus();
+	}
+};
+
 const onKeydown = (event) => {
-	if (event.key === "Escape") close();
+	if (event.key === "Escape") {
+		close();
+		return;
+	}
+	trapFocus(event);
 };
 
 // Changer de saison change les qualites disponibles : on les relit pour la
@@ -397,8 +424,11 @@ watch(selectedQuality, () => {
 });
 
 onMounted(async () => {
+	previousFocus = document.activeElement;
 	document.body.style.overflow = "hidden";
 	window.addEventListener("keydown", onKeydown);
+	await nextTick();
+	dialogRef.value?.focus();
 
 	if (effectiveSeries.value) {
 		selectedSeason.value = props.episode?.season ?? seasons.value[0] ?? 1;
@@ -412,6 +442,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
 	document.body.style.overflow = "";
 	window.removeEventListener("keydown", onKeydown);
+	previousFocus?.focus?.();
 });
 </script>
 
@@ -426,7 +457,9 @@ onBeforeUnmount(() => {
 			></button>
 
 			<div
-				class="relative flex max-h-[88vh] w-full flex-col overflow-hidden rounded-t-3xl border border-inkLine bg-inkCard shadow-deck sm:max-w-lg sm:rounded-3xl"
+				ref="dialogRef"
+				tabindex="-1"
+				class="relative flex max-h-[88vh] w-full flex-col overflow-hidden rounded-t-3xl border border-inkLine bg-inkCard shadow-deck outline-none sm:max-w-lg sm:rounded-3xl"
 				role="dialog"
 				aria-modal="true"
 			>

@@ -66,8 +66,26 @@ module.exports = {
 				"brand-gradient": "linear-gradient(120deg, #22C55E 0%, #34D399 100%)",
 			},
 			fontFamily: {
-				dmSans: ["DM Sans", "sans-serif"],
-				poppins: ["Poppins", "sans-serif"],
+				// Repli système complet : le premier affichage reste net même si la
+				// webfont n'est pas encore téléchargée (et hors ligne).
+				dmSans: [
+					"DM Sans",
+					"system-ui",
+					"-apple-system",
+					"Segoe UI",
+					"Roboto",
+					"Helvetica Neue",
+					"Arial",
+					"sans-serif",
+				],
+				poppins: [
+					"Poppins",
+					"system-ui",
+					"-apple-system",
+					"Segoe UI",
+					"Roboto",
+					"sans-serif",
+				],
 			},
 			keyframes: {
 				shimmer: {
@@ -86,12 +104,17 @@ module.exports = {
 					"0%": { opacity: "0", transform: "translateY(18px)" },
 					"100%": { opacity: "1", transform: "translateY(0)" },
 				},
+				heroProgress: {
+					"0%": { width: "0%" },
+					"100%": { width: "100%" },
+				},
 			},
 			animation: {
 				shimmer: "shimmer 1.4s linear infinite",
 				fadeUp: "fadeUp 0.35s ease-out both",
 				kenburns: "kenburns 14s ease-out both",
 				riseIn: "riseIn 0.5s cubic-bezier(0.22, 1, 0.36, 1) both",
+				heroProgress: "heroProgress 8s linear forwards",
 			},
 		},
 	},

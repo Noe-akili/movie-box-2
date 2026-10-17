@@ -1,15 +1,17 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { downloadFileUrl } from "../api/client";
+import { useDownloads } from "../stores/downloads";
 import { toast } from "../stores/toast";
 import { formatSize } from "../util/format";
+import ActionMenu from "./ActionMenu.vue";
 import AppIcon from "./AppIcon.vue";
 
 /**
  * Dossier d'une série : regroupe tous ses épisodes téléchargés sous une seule
- * carte (comme un dossier de fichiers), avec l'essentiel visibles : nombre
- * d'épisodes, progression, taille — et un bouton « Lire le suivant ».
- * Le clic déplie la liste ordonnée des épisodes (S1 E1, S1 E2 …).
+ * carte, avec l'essentiel visible (nombre d'épisodes, progression, taille) et un
+ * bouton « Lire le suivant ». Le clic sur la vignette déplie la liste ordonnée
+ * des épisodes, chacun disposant de son propre menu « … ».
  */
 const props = defineProps({
 	group: { type: Object, required: true },
@@ -17,10 +19,12 @@ const props = defineProps({
 
 const emit = defineEmits(["remove-many"]);
 
+const { pause, retry, remove } = useDownloads();
+
 const expanded = ref(false);
-const menuOpen = ref(false);
-const menuRef = ref(null);
-const confirming = ref(false);
+const confirmingMany = ref(false);
+const confirmingId = ref(null);
+const busyId = ref(null);
 
 const total = computed(() => props.group.entries.length);
 const done = computed(() => props.group.entries.filter((entry) => entry.status === "completed"));
@@ -71,7 +75,6 @@ const nextEntry = computed(() => {
 		(a.completedAt || 0) >= (b.completedAt || 0) ? a : b,
 	);
 	const index = list.indexOf(latest);
-	// L'épisode suivant dans l'ordre naturel, sinon retour au premier téléchargé.
 	for (let i = index + 1; i < list.length; i += 1) {
 		if (list[i].status === "completed") return list[i];
 	}
@@ -93,35 +96,73 @@ const episodeLabel = (entry) =>
 		? `S${String(entry.seasonNumber).padStart(2, "0")}E${String(entry.episodeNumber).padStart(2, "0")}`
 		: entry.title);
 
-const closeMenu = (event) => {
-	if (menuRef.value && !menuRef.value.contains(event.target)) menuOpen.value = false;
+const isActive = (entry) => ["queued", "downloading"].includes(entry.status);
+const isDone = (entry) => entry.status === "completed";
+
+const onPause = async (entry) => {
+	busyId.value = entry.id;
+	try {
+		await pause(entry.id);
+		toast.info(`Téléchargement mis en pause — ${entry.episodeName || entry.title}`);
+	} catch (error) {
+		toast.error(error.message);
+	} finally {
+		busyId.value = null;
+	}
 };
 
-onMounted(() => document.addEventListener("click", closeMenu));
-onBeforeUnmount(() => document.removeEventListener("click", closeMenu));
-
-const toggleMenu = () => {
-	menuOpen.value = !menuOpen.value;
+const onRetry = async (entry) => {
+	busyId.value = entry.id;
+	try {
+		await retry(entry.id);
+		toast.success(`Reprise — ${entry.episodeName || entry.title}`);
+	} catch (error) {
+		toast.error(error.message);
+	} finally {
+		busyId.value = null;
+	}
 };
 
-const onRemoveMany = () => {
-	// Premier clic : demande de confirmation ; second clic : le parent supprime.
-	if (!confirming.value) {
-		confirming.value = true;
+const onRemoveOne = async (entry, close) => {
+	if (confirmingId.value !== entry.id) {
+		confirmingId.value = entry.id;
 		window.setTimeout(() => {
-			confirming.value = false;
+			if (confirmingId.value === entry.id) confirmingId.value = null;
 		}, 4000);
 		return;
 	}
 
-	menuOpen.value = false;
-	confirming.value = false;
+	confirmingId.value = null;
+	busyId.value = entry.id;
+	close?.();
+	try {
+		await remove(entry.id);
+		toast.info(`« ${entry.episodeName || entry.title} » supprimé`);
+	} catch (error) {
+		toast.error(error.message);
+	} finally {
+		busyId.value = null;
+	}
+};
+
+const onRemoveMany = (close) => {
+	// Premier clic : demande de confirmation ; second clic : le parent supprime.
+	if (!confirmingMany.value) {
+		confirmingMany.value = true;
+		window.setTimeout(() => {
+			confirmingMany.value = false;
+		}, 4000);
+		return;
+	}
+
+	confirmingMany.value = false;
+	close?.();
 	emit("remove-many", props.group.entries.map((entry) => entry.id));
 };
 </script>
 
 <template>
-	<li class="surface overflow-hidden transition-normal hover:border-white/15">
+	<li class="surface transition-normal hover:border-white/15">
 		<!-- Carte du dossier -->
 		<div class="flex items-center gap-3 p-3">
 			<button
@@ -141,7 +182,7 @@ const onRemoveMany = () => {
 					<AppIcon name="tv" :size="20" />
 				</span>
 				<span
-					class="absolute inset-0 grid place-items-center bg-black/45 opacity-0 transition-normal"
+					class="absolute inset-0 grid place-items-center bg-black/45 transition-normal"
 					:class="expanded ? 'opacity-0' : 'opacity-100'"
 				>
 					<AppIcon name="list" :size="18" class="text-white/70" />
@@ -178,52 +219,35 @@ const onRemoveMany = () => {
 				<span class="sm:hidden">Suivant</span>
 			</RouterLink>
 
-			<div ref="menuRef" class="relative shrink-0">
-				<button
-					type="button"
-					class="icon-btn h-9 w-9"
-					:aria-label="`Actions pour ${group.title}`"
-					:aria-expanded="menuOpen"
-					@click.stop="toggleMenu"
-				>
-					<AppIcon name="more" :size="18" />
-				</button>
+			<ActionMenu :label="`Actions pour ${group.title}`" :width="240">
+				<template #default="{ close }">
+					<RouterLink
+						v-if="nextEntry"
+						:to="{ name: 'watch-local', params: { id: nextEntry.id } }"
+						class="menu-item"
+					>
+						<AppIcon name="play" :size="15" filled />
+						<span>{{ watchedLabel }}</span>
+					</RouterLink>
 
-				<div
-					v-if="menuOpen"
-					class="absolute right-0 top-11 z-20 w-60 space-y-2 rounded-2xl border border-inkLine bg-inkCard p-3 shadow-deck"
-				>
-					<p class="text-[11px] font-semibold uppercase tracking-wide text-white/35">Détail</p>
-					<dl class="space-y-1">
-						<div class="flex gap-2 text-[11px]">
-							<dt class="w-16 shrink-0 text-white/35">Titre</dt>
-							<dd class="min-w-0 flex-1 break-words text-white/75">{{ group.title }}</dd>
-						</div>
-						<div class="flex gap-2 text-[11px]">
-							<dt class="w-16 shrink-0 text-white/35">Épisodes</dt>
-							<dd class="text-white/75">{{ done.length }}/{{ total }} terminés</dd>
-						</div>
-						<div v-if="seasonLabel" class="flex gap-2 text-[11px]">
-							<dt class="w-16 shrink-0 text-white/35">Saisons</dt>
-							<dd class="text-white/75">{{ seasonLabel }}</dd>
-						</div>
-						<div class="flex gap-2 text-[11px]">
-							<dt class="w-16 shrink-0 text-white/35">Taille</dt>
-							<dd class="text-white/75">{{ formatSize(totalBytes) }}</dd>
-						</div>
-					</dl>
+					<button type="button" class="menu-item" @click="expanded = !expanded">
+						<AppIcon name="list" :size="15" />
+						<span>{{ expanded ? "Masquer les épisodes" : "Afficher les épisodes" }}</span>
+					</button>
+
+					<div class="menu-separator"></div>
 
 					<button
 						type="button"
-						class="btn w-full px-3 py-2 text-xs"
-						:class="confirming ? 'btn-solid' : 'btn-ghost text-rose'"
-						@click="onRemoveMany"
+						data-keep-open
+						class="menu-item menu-item-danger"
+						@click="onRemoveMany(close)"
 					>
-						<AppIcon name="trash" :size="14" />
-						<span>{{ confirming ? "Confirmer : tout supprimer" : "Supprimer toute la série" }}</span>
+						<AppIcon name="trash" :size="15" />
+						<span>{{ confirmingMany ? "Confirmer : tout supprimer" : "Supprimer toute la série" }}</span>
 					</button>
-				</div>
-			</div>
+				</template>
+			</ActionMenu>
 		</div>
 
 		<!-- Liste ordonnée des épisodes -->
@@ -238,13 +262,13 @@ const onRemoveMany = () => {
 			<div v-if="expanded" class="border-t border-white/5">
 				<ul class="max-h-[60vh] divide-y divide-white/5 overflow-y-auto px-3">
 					<li v-for="entry in group.entries" :key="entry.id">
-						<div class="flex items-center gap-3 py-2.5">
+						<div class="flex items-center gap-2 py-2.5">
 							<span
 								class="grid h-9 w-14 shrink-0 place-items-center rounded-lg text-[11px] font-bold"
 								:class="
-									entry.status === 'completed'
+									isDone(entry)
 										? 'bg-brand/15 text-brandSoft'
-										: ['queued', 'downloading'].includes(entry.status)
+										: isActive(entry)
 											? 'bg-white/10 text-white/80'
 											: 'bg-white/5 text-white/40'
 								"
@@ -263,28 +287,64 @@ const onRemoveMany = () => {
 								</p>
 							</div>
 
-							<RouterLink
-								v-if="entry.status === 'completed' && entry.playable"
-								:to="{ name: 'watch-local', params: { id: entry.id } }"
-								class="icon-btn h-8 w-8 shrink-0"
-								:aria-label="`Lire ${entry.episodeName || entry.title}`"
-							>
-								<AppIcon name="play" :size="15" filled />
-							</RouterLink>
+							<!-- Chaque fichier a son propre menu « … ». -->
+							<ActionMenu :label="`Actions pour ${entry.episodeName || entry.title}`" :width="224">
+								<template #default="{ close }">
+									<RouterLink
+										v-if="isDone(entry) && entry.playable"
+										:to="{ name: 'watch-local', params: { id: entry.id } }"
+										class="menu-item"
+									>
+										<AppIcon name="play" :size="15" filled />
+										<span>Lire</span>
+									</RouterLink>
 
-							<a
-								v-else-if="entry.status === 'completed'"
-								:href="downloadFileUrl(entry.id)"
-								:download="entry.fileName"
-								class="icon-btn h-8 w-8 shrink-0"
-								:aria-label="`Enregistrer ${entry.fileName}`"
-							>
-								<AppIcon name="hardDrive" :size="15" />
-							</a>
+									<a
+										v-if="isDone(entry)"
+										:href="downloadFileUrl(entry.id)"
+										:download="entry.fileName"
+										class="menu-item"
+									>
+										<AppIcon name="hardDrive" :size="15" />
+										<span>Enregistrer sur l'appareil</span>
+									</a>
 
-							<span v-else class="text-[11px] text-white/35">
-								{{ entry.status === 'downloading' ? `${entry.progress} %` : '—' }}
-							</span>
+									<button
+										v-if="isActive(entry)"
+										type="button"
+										class="menu-item"
+										:disabled="busyId === entry.id"
+										@click="onPause(entry)"
+									>
+										<AppIcon name="pause" :size="15" />
+										<span>Mettre en pause</span>
+									</button>
+
+									<button
+										v-else-if="!isDone(entry)"
+										type="button"
+										class="menu-item"
+										:disabled="busyId === entry.id"
+										@click="onRetry(entry)"
+									>
+										<AppIcon name="download" :size="15" />
+										<span>Reprendre le téléchargement</span>
+									</button>
+
+									<div class="menu-separator"></div>
+
+									<button
+										type="button"
+										data-keep-open
+										class="menu-item menu-item-danger"
+										:disabled="busyId === entry.id"
+										@click="onRemoveOne(entry, close)"
+									>
+										<AppIcon name="trash" :size="15" />
+										<span>{{ confirmingId === entry.id ? "Confirmer la suppression" : "Supprimer" }}</span>
+									</button>
+								</template>
+							</ActionMenu>
 						</div>
 					</li>
 				</ul>

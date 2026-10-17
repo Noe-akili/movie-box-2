@@ -45,3 +45,6 @@ __pycache__/
 /design
 .vite
 
+# Journal de diagnostic exporte depuis l'app (runtime, propre a l'appareil)
+/journal
+

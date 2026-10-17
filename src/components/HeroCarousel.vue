@@ -198,5 +198,14 @@ onBeforeUnmount(stop);
 				@click="goTo(itemIndex)"
 			></button>
 		</div>
+
+		<!-- Minuteur de défilement : fine barre qui se remplit avant le titre suivant. -->
+		<div
+			v-if="props.items.length > 1"
+			class="absolute inset-x-0 bottom-0 z-10 h-0.5 bg-white/10"
+			aria-hidden="true"
+		>
+			<div :key="index" class="h-full animate-heroProgress bg-brand-gradient"></div>
+		</div>
 	</section>
 </template>

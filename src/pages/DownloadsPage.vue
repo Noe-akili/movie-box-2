@@ -59,7 +59,7 @@ const groups = computed(() => {
 const onRemoveMany = async (ids) => {
 	try {
 		await Promise.all(ids.map((id) => remove(id)));
-		toast.info("Épisodes supprimés du stockage du serveur");
+		toast.info("Épisodes supprimés");
 	} catch (error) {
 		toast.error(error.message);
 	}
@@ -81,7 +81,7 @@ const onClearCompleted = async () => {
 
 	try {
 		await Promise.all(completedItems.value.map((entry) => remove(entry.id)));
-		toast.info("Téléchargements supprimés du stockage du serveur");
+		toast.info("Téléchargements supprimés");
 	} catch (error) {
 		toast.error(error.message);
 	}
@@ -102,7 +102,7 @@ onMounted(() => refresh());
 					<div>
 						<h1 class="text-2xl font-bold tracking-tight md:text-3xl">Téléchargements</h1>
 						<p class="mt-1 text-sm text-white/45">
-							{{ summary.completed }} titre(s) stocké(s) sur le serveur
+							{{ summary.completed }} élément(s) enregistré(s)
 							<span v-if="summary.active + summary.queued"> · {{ summary.active + summary.queued }} en cours</span>
 							<span v-if="usedLabel"> · {{ usedLabel }} utilisés</span>
 						</p>

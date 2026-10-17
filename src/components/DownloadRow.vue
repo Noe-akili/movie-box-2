@@ -1,15 +1,16 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { downloadFileUrl } from "../api/client";
 import { useDownloads } from "../stores/downloads";
 import { toast } from "../stores/toast";
 import { formatDate, formatEta, formatSize, formatSpeed } from "../util/format";
+import ActionMenu from "./ActionMenu.vue";
 import AppIcon from "./AppIcon.vue";
 
 /**
- * Ligne d'un telechargement : progression en direct, lecture locale et enregistrement.
- * La carte reste volontairement compacte (une action visible) : le reste des actions
- * est dans le menu « … » (detail, reprise, suppression).
+ * Ligne d'un telechargement : progression en direct, lecture locale et actions.
+ * La carte reste compacte : une action visible (« Regarder ») et un menu « … »
+ * pour le reste (enregistrer, pause/reprise, suppression).
  */
 const props = defineProps({
 	entry: { type: Object, required: true },
@@ -18,8 +19,6 @@ const props = defineProps({
 const { pause, retry, remove } = useDownloads();
 const confirming = ref(false);
 const isBusy = ref(false);
-const menuOpen = ref(false);
-const menuRef = ref(null);
 
 const isActive = computed(() => ["queued", "downloading"].includes(props.entry.status));
 const isDone = computed(() => props.entry.status === "completed");
@@ -40,6 +39,17 @@ const meta = computed(() =>
 		.filter(Boolean)
 		.join(" • "),
 );
+
+/** Petite ligne discrète : format et date de fin (quand connus). */
+const subtitle = computed(() => {
+	const extension = String(props.entry.fileName || "").split(".").pop() || null;
+	return [
+		extension ? extension.toUpperCase() : null,
+		isDone.value && props.entry.completedAt ? formatDate(props.entry.completedAt) : null,
+	]
+		.filter(Boolean)
+		.join(" • ");
+});
 
 const liveLabel = computed(() => {
 	if (props.entry.status === "queued") return "En attente dans la file";
@@ -73,35 +83,7 @@ const badgeClass = computed(() => {
 	return "badge badge-brand";
 });
 
-/** Detail complet, affiche par le menu « … ». */
-const details = computed(() => {
-	const entry = props.entry;
-	const extension = String(entry.fileName || "").split(".").pop() || "—";
-	return [
-		{ label: "Fichier", value: entry.fileName || "—" },
-		{ label: "Format", value: `${extension.toUpperCase()}${entry.format ? ` · ${entry.format}` : ""}` },
-		{ label: "Qualité", value: entry.quality || "—" },
-		{
-			label: "Taille",
-			value: `${formatSize(entry.bytesTotal || entry.bytesReceived)} (${Math.round(entry.progress)} %)`,
-		},
-		entry.kind === "episode"
-			? { label: "Épisode", value: `${entry.seriesTitle || "—"} · ${entry.label || ""}` }
-			: null,
-		entry.completedAt ? { label: "Terminé le", value: formatDate(entry.completedAt) } : null,
-		entry.error ? { label: "Erreur", value: entry.error } : null,
-	].filter(Boolean);
-});
-
-const closeMenu = (event) => {
-	if (menuRef.value && !menuRef.value.contains(event.target)) menuOpen.value = false;
-};
-
-onMounted(() => document.addEventListener("click", closeMenu));
-onBeforeUnmount(() => document.removeEventListener("click", closeMenu));
-
 const onPause = async () => {
-	menuOpen.value = false;
 	isBusy.value = true;
 	try {
 		await pause(props.entry.id);
@@ -114,7 +96,6 @@ const onPause = async () => {
 };
 
 const onRetry = async () => {
-	menuOpen.value = false;
 	isBusy.value = true;
 	try {
 		await retry(props.entry.id);
@@ -126,8 +107,8 @@ const onRetry = async () => {
 	}
 };
 
-const onRemove = async () => {
-	// Premier clic : demande de confirmation ; second clic : suppression.
+/** Suppression en deux temps, déclenchée depuis le menu « … ». */
+const onRemove = async (close) => {
 	if (!confirming.value) {
 		confirming.value = true;
 		window.setTimeout(() => {
@@ -136,12 +117,12 @@ const onRemove = async () => {
 		return;
 	}
 
-	menuOpen.value = false;
 	confirming.value = false;
 	isBusy.value = true;
+	close?.();
 	try {
 		await remove(props.entry.id);
-		toast.info(`« ${heading.value} » supprimé du stockage`);
+		toast.info(`« ${heading.value} » supprimé`);
 	} catch (error) {
 		toast.error(error.message);
 	} finally {
@@ -181,13 +162,14 @@ const onRemove = async () => {
 				<h3 class="line-clamp-1 text-sm font-semibold text-white/90">{{ heading }}</h3>
 				<p v-if="subheading" class="line-clamp-1 text-[11px] text-white/45">{{ subheading }}</p>
 				<p class="line-clamp-1 text-[11px] text-white/40">{{ meta }}</p>
+				<p v-if="subtitle" class="line-clamp-1 text-[11px] text-white/30">{{ subtitle }}</p>
 				<p v-if="liveLabel" class="line-clamp-1 text-[11px] text-white/55">{{ liveLabel }}</p>
 				<p v-if="isFailed && props.entry.error" class="line-clamp-1 text-[11px] text-amber-300/90">
 					{{ props.entry.error }}
 				</p>
 			</div>
 
-			<!-- Une seule action visible : lire quand le fichier est pret. -->
+			<!-- Une seule action visible : lire quand le fichier est prêt. -->
 			<RouterLink
 				v-if="isDone && props.entry.playable"
 				:to="{ name: 'watch-local', params: { id: props.entry.id } }"
@@ -197,87 +179,55 @@ const onRemove = async () => {
 				<span class="hidden sm:inline">Regarder</span>
 			</RouterLink>
 
-			<!-- Menu « … » : detail, reprise, suppression. -->
-			<div ref="menuRef" class="relative shrink-0">
-				<button
-					type="button"
-					class="icon-btn h-9 w-9"
-					:aria-label="`Actions pour ${heading}`"
-					:aria-expanded="menuOpen"
-					@click="menuOpen = !menuOpen"
-				>
-					<AppIcon name="more" :size="18" />
-				</button>
+			<!-- Menu « … » : enregistrer, pause/reprise, suppression. -->
+			<ActionMenu :label="`Actions pour ${heading}`" :width="224">
+				<template #default="{ close }">
+					<a
+						v-if="isDone"
+						:href="downloadFileUrl(props.entry.id)"
+						:download="props.entry.fileName"
+						class="menu-item"
+					>
+						<AppIcon name="hardDrive" :size="15" />
+						<span>Enregistrer sur l'appareil</span>
+					</a>
 
-				<div
-					v-if="menuOpen"
-					class="absolute right-0 top-11 z-20 w-64 space-y-2 rounded-2xl border border-inkLine bg-inkCard p-3 shadow-deck"
-				>
-					<p class="text-[11px] font-semibold uppercase tracking-wide text-white/35">Détail</p>
-					<dl class="space-y-1">
-						<div v-for="row in details" :key="row.label" class="flex gap-2 text-[11px]">
-							<dt class="w-16 shrink-0 text-white/35">{{ row.label }}</dt>
-							<dd class="min-w-0 flex-1 break-words text-white/75">{{ row.value }}</dd>
-						</div>
-					</dl>
+					<button
+						v-if="isActive"
+						type="button"
+						class="menu-item"
+						:disabled="isBusy"
+						@click="onPause"
+					>
+						<AppIcon name="pause" :size="15" />
+						<span>Mettre en pause</span>
+					</button>
 
-					<div class="space-y-1.5 border-t border-white/5 pt-2">
-						<a
-							v-if="isDone"
-							:href="downloadFileUrl(props.entry.id)"
-							:download="props.entry.fileName"
-							class="btn btn-inverse w-full px-3 py-2 text-xs"
-							@click="menuOpen = false"
-						>
-							<AppIcon name="hardDrive" :size="14" />
-							<span>Enregistrer sur l'appareil</span>
-						</a>
+					<button
+						v-else-if="!isDone"
+						type="button"
+						class="menu-item"
+						:disabled="isBusy"
+						@click="onRetry"
+					>
+						<AppIcon name="download" :size="15" />
+						<span>Reprendre le téléchargement</span>
+					</button>
 
-						<RouterLink
-							v-if="isDone && props.entry.playable"
-							:to="{ name: 'watch-local', params: { id: props.entry.id } }"
-							class="btn btn-inverse w-full px-3 py-2 text-xs sm:hidden"
-							@click="menuOpen = false"
-						>
-							<AppIcon name="play" :size="14" filled />
-							<span>Regarder</span>
-						</RouterLink>
+					<div class="menu-separator"></div>
 
-						<button
-							v-if="isActive"
-							type="button"
-							class="btn btn-inverse w-full px-3 py-2 text-xs"
-							:disabled="isBusy"
-							@click="onPause"
-						>
-							<AppIcon name="pause" :size="14" />
-							<span>Mettre en pause</span>
-						</button>
-
-						<button
-							v-else
-							type="button"
-							class="btn btn-inverse w-full px-3 py-2 text-xs"
-							:disabled="isBusy"
-							@click="onRetry"
-						>
-							<AppIcon name="download" :size="14" />
-							<span>Reprendre le téléchargement</span>
-						</button>
-
-						<button
-							type="button"
-							class="btn w-full px-3 py-2 text-xs"
-							:class="confirming ? 'btn-solid' : 'btn-ghost text-rose'"
-							:disabled="isBusy"
-							@click="onRemove"
-						>
-							<AppIcon name="trash" :size="14" />
-							<span>{{ confirming ? "Confirmer la suppression" : "Supprimer" }}</span>
-						</button>
-					</div>
-				</div>
-			</div>
+					<button
+						type="button"
+						data-keep-open
+						class="menu-item menu-item-danger"
+						:disabled="isBusy"
+						@click="onRemove(close)"
+					>
+						<AppIcon name="trash" :size="15" />
+						<span>{{ confirming ? "Confirmer la suppression" : "Supprimer" }}</span>
+					</button>
+				</template>
+			</ActionMenu>
 		</div>
 
 		<!-- Barre de progression sous la carte quand le transfert est actif. -->

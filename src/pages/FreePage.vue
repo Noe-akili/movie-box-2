@@ -49,9 +49,6 @@ const heading = computed(() => (source.value === "internal" ? "Catalogue gratuit
 // application de streaming (affiche en fond, badges, lecture + téléchargement).
 const featured = computed(() => items.value.find((item) => item.backdrop || item.poster) || items.value[0] || null);
 const featuredSeasons = computed(() => seasonCountOf(featured.value));
-// Les cartes ne portent pas la liste des épisodes : pour une série, on laisse
-// l'assistant de la fiche détaillée gérer saisons et épisodes.
-const featuredIsSeries = computed(() => isSeriesTitle(featured.value));
 const featuredMeta = computed(() => {
 	const item = featured.value;
 	if (!item) return [];
@@ -241,11 +238,10 @@ onMounted(() => load({ reset: true }));
 						</RouterLink>
 
 						<DownloadButton
-								v-if="!featuredIsSeries"
-								:item="featured"
-								:stream="featured.streams?.[0] || null"
-								label="Télécharger"
-							/>
+							:item="featured"
+							:stream="featured.streams?.[0] || null"
+							label="Télécharger"
+						/>
 
 						<RouterLink :to="detailRoute(featured)" class="btn btn-inverse px-5 py-3 text-[15px]">
 							<AppIcon name="info" :size="19" />

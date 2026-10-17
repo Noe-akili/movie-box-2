@@ -30,7 +30,9 @@ const useEmbed = ref(false);
 
 // Une archive peut contenir plusieurs episodes : on bascule de l'un a l'autre.
 const episodes = computed(() => (Array.isArray(title.value?.episodes) ? title.value.episodes : []));
-const isSeries = computed(() => episodes.value.length > 1);
+// Une série (kind/`subjectType`) qui fournit ses épisodes se lit épisode par
+// épisode ; un titre sans liste d'épisodes retombe sur ses flux directs.
+const isSeries = computed(() => isSeriesTitle(title.value) && episodes.value.length > 0);
 const currentEpisode = computed(() => (isSeries.value ? episodes.value[selectedEpisode.value] || null : null));
 const streams = computed(() => {
 	if (isSeries.value) return currentEpisode.value?.streams || [];
@@ -83,7 +85,7 @@ const buildLocalTitle = (entry) => ({
 	mediaType: "archive",
 	archiveId: entry.sourceId,
 	title: entry.kind === "episode" ? entry.seriesTitle || entry.title : entry.title,
-	overview: "Copie stockée par le serveur Movie Box : lecture directe depuis le disque, sans repasser par Internet Archive.",
+	overview: "",
 	poster: entry.poster || null,
 	backdrop: entry.backdrop || null,
 	streams: [
@@ -192,7 +194,7 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 				<p v-if="title" class="text-[11px] text-white/40">
 					{{
 						isLocal
-							? "Lecture hors ligne — fichier stocké par le serveur"
+							? "Lecture hors ligne"
 							: free
 								? "Lecture gratuite — domaine public / libre"
 								: "Bande-annonce officielle et sources légales"
@@ -290,7 +292,7 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 				<div class="flex flex-wrap items-center gap-2">
 					<h2 class="section-title">Qualité &amp; sources</h2>
 					<DownloadButton
-						v-if="currentStream"
+						v-if="currentStream && !isLocal"
 						:item="title"
 						:stream="currentStream"
 						:episode="currentEpisode"
@@ -335,7 +337,7 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 					</button>
 				</div>
 
-				<p class="text-[11px] text-white/35">
+				<p v-if="!isLocal" class="text-[11px] text-white/35">
 					{{ title.sourceLabel }}
 					<span v-if="formatCount(title.downloads)"> — {{ formatCount(title.downloads) }} vues sur Internet Archive</span>
 				</p>
@@ -355,12 +357,12 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 									.join(" • ")
 							}}
 						</p>
-						<p class="text-sm leading-relaxed text-white/70">
-							{{ title.overview || "Aucun synopsis disponible." }}
+						<p v-if="title.overview" class="text-sm leading-relaxed text-white/70">
+							{{ title.overview }}
 						</p>
 					</div>
 
-					<div class="surface space-y-2.5 p-4 text-sm">
+					<div v-if="!isLocal" class="surface space-y-2.5 p-4 text-sm">
 						<div v-if="title.creator" class="flex gap-3">
 							<span class="w-24 shrink-0 text-white/40">Auteur</span>
 							<span class="text-white/80">{{ title.creator }}</span>

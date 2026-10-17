@@ -79,3 +79,29 @@ test("sans épisode ni saison : film gratuit", () => {
 	assert.equal(isSeriesTitle(archive), false);
 	assert.equal(mediaTypeLabel(archive), "FILM");
 });
+
+test("carte interne : `subjectType` 2 annonce une série même sans compteur", () => {
+	const series = { mediaType: "internal", internalId: "42", title: "Série cachée", subjectType: 2 };
+	assert.equal(isSeriesTitle(series), true);
+	assert.equal(mediaTypeLabel(series), "SÉRIE");
+});
+
+test("carte interne : `subjectType` 1 reste un film même sans compteur", () => {
+	const movie = { mediaType: "internal", internalId: "43", title: "Film", subjectType: 1 };
+	assert.equal(isSeriesTitle(movie), false);
+	assert.equal(mediaTypeLabel(movie), "FILM");
+});
+
+test("carte interne : compteur d'épisodes > 1 => série", () => {
+	const series = { mediaType: "internal", internalId: "44", title: "Saison unique", episodes: 10 };
+	assert.equal(isSeriesTitle(series), true);
+});
+
+test("une série gratuite garde son type après passage par le catalogue", () => {
+	// Reproduit le bug : la carte ne porte que `subjectType`, la modale de
+	// téléchargement doit quand même savoir qu'il s'agit d'une série.
+	const card = { mediaType: "internal", internalId: "45", title: "Série gratuite", subjectType: 2, seasons: 1 };
+	assert.equal(isFree(card), true);
+	assert.equal(isSeriesTitle(card), true);
+	assert.equal(mediaTypeLabel(card), "SÉRIE");
+});

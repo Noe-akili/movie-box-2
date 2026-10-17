@@ -5,9 +5,16 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 		<meta name="description" content="Movie Box — explore tout le catalogue mondial de films, séries et animés, regarde gratuitement les films libres de droits et retrouve les offres légales gratuites." />
 		<meta name="theme-color" content="#07070A" />
+		<meta name="color-scheme" content="dark" />
 		<meta name="apple-mobile-web-app-capable" content="yes" />
 		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 		<meta name="apple-mobile-web-app-title" content="Movie Box" />
+
+		<!-- Connexions anticipées : affiches TMDB et médias du domaine public.
+		     Les polices sont hébergées localement (aucun appel à Google Fonts). -->
+		<link rel="preconnect" href="https://image.tmdb.org" />
+		<link rel="preconnect" href="https://archive.org" />
+		<link rel="dns-prefetch" href="https://ia600000.us.archive.org" />
 		<link
 			rel="apple-touch-icon"
 			sizes="180x180"
@@ -27,6 +34,19 @@
 		/>
 		<link rel="manifest" href="/site.webmanifest" />
 		<title>Movie Box — Films, séries et films gratuits</title>
+
+		<!-- Fond sombre immédiat : évite le flash blanc avant le chargement du CSS. -->
+		<style>
+			html,
+			body {
+				margin: 0;
+				background-color: #07070a;
+				color: #fff;
+			}
+			#root {
+				min-height: 100svh;
+			}
+		</style>
 	</head>
 	<body>
 		<div id="root"></div>

@@ -57,6 +57,7 @@ const onToggleFavorite = () => {
 		:to="detailRoute(props.item)"
 		class="group flex h-full flex-col focus:outline-none"
 		:class="props.width"
+		:aria-label="`${props.item.title}${series ? ' — série' : ''}${free ? ' — gratuit' : ''}`"
 	>
 		<div
 			class="relative overflow-hidden rounded-xl bg-inkCard shadow-poster ring-1 ring-white/5 transition-all duration-300 ease-out group-hover:-translate-y-1 group-hover:ring-white/20 group-hover:shadow-hover"
@@ -88,11 +89,20 @@ const onToggleFavorite = () => {
 
 			<span
 				class="badge absolute left-1.5 top-1.5 shadow-soft"
-				:class="free ? 'badge-free' : 'bg-black/60 text-white backdrop-blur'"
+				:class="
+					free
+						? 'badge-free'
+						: series
+							? 'bg-brand/25 text-brandSoft ring-1 ring-brand/40 backdrop-blur'
+							: 'bg-black/60 text-white backdrop-blur'
+				"
 			>
 				{{ free ? "GRATUIT" : mediaTypeLabel(props.item) }}
 			</span>
-			<span v-if="seriesLabel" class="badge absolute left-1.5 top-8 bg-black/65 text-white/80 backdrop-blur">
+			<span
+				v-if="seriesLabel"
+				class="badge absolute left-1.5 top-8 bg-black/65 text-white/80 backdrop-blur"
+			>
 				{{ seriesLabel }}
 			</span>
 

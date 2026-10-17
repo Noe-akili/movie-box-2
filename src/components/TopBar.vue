@@ -67,6 +67,9 @@ const isActive = (to) => (to === "/" ? route.path === "/" : route.path.startsWit
 				<RouterLink to="/search" class="icon-btn" aria-label="Rechercher un film, une série">
 					<AppIcon name="search" :size="19" />
 				</RouterLink>
+				<RouterLink to="/library" class="icon-btn" aria-label="Ma liste">
+					<AppIcon name="bookmark" :size="19" />
+				</RouterLink>
 				<RouterLink to="/downloads" class="icon-btn relative" aria-label="Téléchargements">
 					<AppIcon name="download" :size="19" />
 					<span
@@ -75,9 +78,6 @@ const isActive = (to) => (to === "/" ? route.path === "/" : route.path.startsWit
 					>
 						{{ activeCount }}
 					</span>
-				</RouterLink>
-				<RouterLink to="/library" class="icon-btn hidden sm:grid" aria-label="Ma liste">
-					<AppIcon name="bookmark" :size="19" />
 				</RouterLink>
 				<RouterLink
 					to="/profile"

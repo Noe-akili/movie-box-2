@@ -118,21 +118,29 @@ pub async fn rate_limit(req: Request, next: Next) -> Response {
 	response
 }
 
-/// Cache navigateur court sur /api (les téléchargements ne doivent jamais être mis en cache).
+/// Politique de cache : courte sur /api, immuable sur les assets hachés, revalidation sur le HTML.
 pub async fn api_cache_control(req: Request, next: Next) -> Response {
 	let path = req.uri().path();
 	// Les flux (téléchargements et proxy média par plages d'octets) ne doivent
 	// jamais être mis en cache.
-	let uncacheable = path.starts_with("/api/downloads") || path.starts_with("/api/internal/proxy");
-	let mut response = next.run(req).await;
+	let cache_control = if path.starts_with("/api/downloads") || path.starts_with("/api/internal/proxy")
+	{
+		"no-store"
+	} else if path.starts_with("/api/") {
+		// Catalogue : cache court, suffisant pour absorber un rafraîchissement.
+		"public, max-age=60"
+	} else if path.starts_with("/assets/") {
+		// Assets compilés par Vite : nom hashé → contenu immuable, cache long.
+		"public, max-age=31536000, immutable"
+	} else {
+		// index.html et routes SPA : toujours revalider pour ne pas servir un vieux build.
+		"no-cache"
+	};
 
+	let mut response = next.run(req).await;
 	response.headers_mut().insert(
 		HeaderName::from_static("cache-control"),
-		HeaderValue::from_static(if uncacheable {
-			"no-store"
-		} else {
-			"public, max-age=60"
-		}),
+		HeaderValue::from_static(cache_control),
 	);
 
 	response

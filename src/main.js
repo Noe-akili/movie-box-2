@@ -47,6 +47,28 @@ async function bootstrap() {
 	}
 
 	createApp(App).use(router).mount("#root");
+	prefetchCommonRoutes();
+}
+
+/**
+ * Préchauffe les écrans les plus probables une fois la page interactive.
+ * Les chunks arrivent en tâche de fond : la première navigation vers une fiche
+ * ou la lecture est quasi instantanée, sans retarder le premier rendu.
+ */
+function prefetchCommonRoutes() {
+	if (typeof window === "undefined") return;
+	const load = () =>
+		Promise.allSettled([
+			import("./pages/FreePage.vue"),
+			import("./pages/DetailPage.vue"),
+			import("./pages/WatchPage.vue"),
+			import("./pages/BrowsePage.vue"),
+		]);
+	if ("requestIdleCallback" in window) {
+		window.requestIdleCallback(load, { timeout: 2500 });
+	} else {
+		window.setTimeout(load, 1500);
+	}
 }
 
 bootstrap();
