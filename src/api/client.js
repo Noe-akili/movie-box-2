@@ -10,8 +10,28 @@ import { useSettings } from "../stores/settings";
  * joindre de serveur loopback externe. L'API passe par l'IPC Tauri et les flux
  * média par le protocole `moviebox://`.
  */
-export const serverOrigin = () =>
-	typeof window !== "undefined" && window.__SERVER_ORIGIN__ ? window.__SERVER_ORIGIN__ : "";
+/**
+ * Origine de repli du protocole média embarqué. Utilisée si la commande
+ * `server_origin` n'a pas répondu : sans origine, les balises `<img>`/`<video>`
+ * viseraient `tauri://localhost` et aucun média ne s'afficherait.
+ */
+const FALLBACK_SERVER_ORIGIN =
+	typeof navigator !== "undefined" && /android/i.test(navigator.userAgent)
+		? "http://moviebox.localhost"
+		: "moviebox://localhost";
+
+/** Vrai lorsqu'on tourne dans la WebView Tauri (Android/desktop). */
+const isTauri = () =>
+	typeof window !== "undefined" &&
+	Boolean(window.__TAURI__ || window.__TAURI_INTERNALS__);
+
+export const serverOrigin = () => {
+	if (typeof window === "undefined") return "";
+	if (window.__SERVER_ORIGIN__) return window.__SERVER_ORIGIN__;
+	// Repli : en app packagée, le protocole média est exposé sous une origine
+	// connue même si la commande `server_origin` a échoué.
+	return isTauri() ? FALLBACK_SERVER_ORIGIN : "";
+};
 
 /** Base de l'API : origine runtime (Android) sinon chemin relatif (web). */
 export const apiBase = () =>
@@ -26,11 +46,16 @@ export const apiBase = () =>
 export const mediaUrl = (url) =>
 	url && url.startsWith("/") && serverOrigin() ? `${serverOrigin()}${url}` : url;
 
-/** `invoke` de Tauri, disponible uniquement dans l'app packagée (Android/desktop). */
-const tauriInvoke =
-	typeof window !== "undefined" && window.__TAURI__?.core?.invoke
-		? window.__TAURI__.core.invoke
-		: null;
+/** `invoke` de Tauri, résolu au moment de l'appel. */
+function tauriInvoke() {
+	if (typeof window === "undefined") return null;
+	return (
+		window.__TAURI__?.core?.invoke ||
+		window.__TAURI__?.invoke ||
+		window.__TAURI_INTERNALS__?.invoke ||
+		null
+	);
+}
 
 /** Chemin de la requête, sans domaine (ex. « /api/home »). */
 function requestPath(config) {
@@ -70,7 +95,13 @@ function tauriAdapter(config) {
 					? JSON.stringify(config.data)
 					: null;
 
-		tauriInvoke("api_request", { method, path, query, body })
+		const invoke = tauriInvoke();
+		if (!invoke) {
+			reject(new Error("Tauri IPC indisponible"));
+			return;
+		}
+
+		invoke("api_request", { method, path, query, body })
 			.then((result) => {
 				let data = result.body ?? null;
 				if (typeof result.body === "string" && result.body.length > 0) {
@@ -127,16 +158,19 @@ const http = axios.create({
 	timeout: 45_000,
 });
 
-// Dans l'app Tauri, les appels passent par l'IPC (pas d'HTTP loopback).
-if (tauriInvoke) {
-	http.defaults.adapter = tauriAdapter;
-}
+// L'adaptateur Tauri est sélectionné dynamiquement dans l'intercepteur de
+// requête : il dépend de la présence de `window.__TAURI__` au moment de l'appel
+// (injection parfois différée sur Android).
 
 http.interceptors.request.use((request) => {
 	const settings = useSettings();
 
 	// L'origine du serveur embarque n'est connue qu'apres le bootstrap Tauri.
 	request.baseURL = apiBase();
+
+	if (tauriInvoke()) {
+		request.adapter = tauriAdapter;
+	}
 
 	request.params = {
 		lang: settings.value.language,
