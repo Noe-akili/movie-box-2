@@ -182,3 +182,27 @@ unzip -p /tmp/apk/app-universal-release.apk assets/tauri.conf.json \
   | grep -ao '"pattern":{"use":"[a-z]*"}'                              # brownfield (old==new)
 git --no-pager show f5ce173 --stat
 ```
+
+## 4) Ce que j’ai corrigé pour que l’APK se charge
+
+- Frontend `src/api/client.js` :
+  - Détection Tauri au moment de l’appel (`__TAURI__` / `__TAURI_INTERNALS__`) au lieu d’une capture au moment du chargement du module → évite l’adaptateur Axios manquant si `__TAURI__` est injecté tard sur Android.
+  - Adaptateur Tauri sélectionné dynamiquement dans l’intercepteur de requête (ajout de `request.adapter = tauriAdapter` seulement quand Tauri est disponible). Si l’IPC n’est pas prêt, l’adaptateur web par défaut reste utilisé.
+  - Invocation de `invoke` via une fonction paresseuse (résout `window.__TAURI__?.core?.invoke` / `window.__TAURI_INTERNALS__?.invoke`) et message d’erreur explicite en cas d’indisponibilité.
+  - `serverOrigin()` fournit un repli (`http://moviebox.localhost` sur Android, `moviebox://localhost` sur desktop) si `__SERVER_ORIGIN__` n’est pas fixé (commande `server_origin` manquante dans le binaire) → les URLs média (images, vidéos) ne passent plus par `tauri://localhost` vide.
+  - L’inadaptateur Tauri transforme `api_request` en appel IPC et mappe la réponse en structure Axios.
+
+- Frontend `src/main.js` :
+  - `bootstrap()` attend l’injection de Tauri (`waitForTauri()`) jusqu’à 3 s (poll sur `__TAURI__` / `__TAURI_INTERNALS__`) puis appelle `server_origin`. En cas d’échec de `server_origin`, `serverOrigin()` retombe sur l’origine de repli → les médias restent accessibles.
+  - L’application est montée (`createApp(...).mount("#root")`) quoi qu’il arrive ; les appels API basculent sur l’adaptateur Tauri dès qu’il est disponible.
+
+- Build frontend : `npx vite build` OK (dist généré).
+
+- Push : `8ea010f` → `origin/main`. CI reconstruira l’APK Android avec ces correctifs.
+
+## 5) Comment valider l’APK
+
+1. Attendre la fin du workflow « Build Android APK » sur `8ea010f` (Actions > Run 38941432913+ ou nouveau run) et télécharger l’artefact `movie-box-android-release`.
+2. Installer sur l’appareil Android.
+3. Lancer l’app : l’accueil doit charger (données via IPC). Les images/affiches doivent s’afficher (URL média via `http://moviebox.localhost`). Pas d’écran blanc.
+4. La page Profil > « État du serveur » doit indiquer « API : en ligne » (si l’IPC fonctionne).
