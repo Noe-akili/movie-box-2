@@ -11,6 +11,10 @@ import fr from "artplayer/i18n/fr";
  * qualité, vitesse de lecture, miroir, Picture-in-Picture, plein écran, rotation
  * automatique et panneau de réglages. Les URL restent celles du backend
  * (Internet Archive en ligne ou fichier local du dossier de téléchargement).
+ *
+ * Reprise de lecture : la position est mémorisée par vidéo (`id`) dans le
+ * stockage local et restaurée automatiquement, si bien qu'appuyer sur Lecture
+ * reprend là où l'on s'était arrêté.
  */
 const props = defineProps({
 	/** URL lisible par la balise vidéo (déjà absolue si nécessaire). */
@@ -24,15 +28,47 @@ const props = defineProps({
 	 * `[{ html: "720p · mp4", url: "…" }, …]` (2 entrées minimum pour l'afficher).
 	 */
 	qualities: { type: Array, default: () => [] },
+	/** Identifiant stable de la vidéo (film ou épisode) servant de clé de reprise. */
+	id: { type: String, default: "" },
 });
 
 const emit = defineEmits(["ready", "error"]);
 
 const container = ref(null);
 let player = null;
+let saveTimer = null;
+let restored = false;
+
+/** Clé de reprise propre à chaque vidéo. */
+const progressKey = () => `moviebox:progress:${props.id || props.src}`;
+
+const readProgress = () => {
+	try {
+		return Number(window.localStorage.getItem(progressKey())) || 0;
+	} catch {
+		return 0;
+	}
+};
+
+const writeProgress = (time) => {
+	if (!Number.isFinite(time) || time <= 0) return;
+	try {
+		window.localStorage.setItem(progressKey(), String(Math.floor(time)));
+	} catch {
+		/* stockage indisponible : on ignore */
+	}
+};
+
+const clearProgress = () => {
+	try {
+		window.localStorage.removeItem(progressKey());
+	} catch {
+		/* stockage indisponible : on ignore */
+	}
+};
 
 const buildQuality = () => {
-	if (!props.qualities || props.qualities.length < 2) return undefined;
+	if (!props.qualities || props.qualities.length < 2) return null;
 	return props.qualities.map((quality) => ({
 		html: quality.html || quality.label || quality.quality || "source",
 		url: quality.url,
@@ -40,12 +76,27 @@ const buildQuality = () => {
 	}));
 };
 
+/** Replace la tête de lecture là où l'utilisateur s'était arrêté (une seule fois). */
+const resume = () => {
+	if (restored || !player) return;
+	restored = true;
+	const saved = readProgress();
+	const duration = player.duration || 0;
+	// Ignore les toutes premières secondes et la toute fin du générique.
+	if (saved > 5 && (!duration || saved < duration - 5)) {
+		player.currentTime = saved;
+	}
+};
+
 const create = () => {
 	if (!container.value || !props.src) return;
+
+	restored = false;
+	const quality = buildQuality();
 	player = new Artplayer({
 		container: container.value,
 		url: props.src,
-		poster: props.poster || undefined,
+		poster: props.poster || "",
 		autoplay: props.autoplay,
 		muted: false,
 		volume: 0.8,
@@ -65,16 +116,40 @@ const create = () => {
 		playsInline: true,
 		gesture: true,
 		autoSize: false,
-		quality: buildQuality(),
 		moreVideoAttr: { playsInline: true },
+		...(quality ? { quality } : {}),
 	});
 
-	player.on("ready", () => emit("ready"));
+	// `loadedmetadata` arrive avant `ready` (qui exige assez de données) : on
+	// restaure la position au plus tôt pour que la lecture reprenne au bon endroit.
+	player.on("video:loadedmetadata", resume);
+	player.on("ready", () => {
+		resume();
+		emit("ready");
+	});
 	player.on("video:error", () => emit("error"));
+	player.on("pause", () => {
+		if (player) writeProgress(player.currentTime);
+	});
+	player.on("video:ended", clearProgress);
+	// Sauvegarde régulière (5 s) pendant la lecture.
+	player.on("video:timeupdate", () => {
+		if (!player || !player.playing || saveTimer) return;
+		saveTimer = window.setTimeout(() => {
+			saveTimer = null;
+			if (player) writeProgress(player.currentTime);
+		}, 5000);
+	});
 };
 
 const destroy = () => {
+	if (saveTimer) {
+		window.clearTimeout(saveTimer);
+		saveTimer = null;
+	}
 	if (player) {
+		// Mémorise la position avant destruction (changement d'épisode, retour…).
+		if (player.currentTime) writeProgress(player.currentTime);
 		player.destroy();
 		player = null;
 	}
@@ -94,5 +169,5 @@ watch(
 </script>
 
 <template>
-	<div ref="container" class="h-full w-full"></div>
+	<div ref="container" class="h-full w-full bg-black"></div>
 </template>

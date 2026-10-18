@@ -54,6 +54,16 @@ const legalLinks = computed(() => title.value?.legalLinks || []);
 const related = computed(() => title.value?.related || title.value?.similar || []);
 const saved = computed(() => (title.value ? isFavorite(title.value) : false));
 const isLocal = computed(() => props.mediaType === "local");
+// Identifiant stable par vidéo : sert de clé pour reprendre la lecture plus tard.
+const playerId = computed(() => {
+	if (isLocal.value) return `local:${props.id}`;
+	const base = title.value?.archiveId || title.value?.internalId || title.value?.id || props.id;
+	const episodePart =
+		isSeries.value && currentEpisode.value
+			? `:s${currentEpisode.value.season ?? 0}e${currentEpisode.value.number ?? 0}`
+			: "";
+	return `${base}${episodePart}`;
+});
 const { items: localDownloads } = useDownloads();
 // Entree brute du fichier local en cours (permet de trouver l'episode suivant).
 const localEntry = ref(null);
@@ -254,6 +264,7 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 					<VideoPlayer
 						v-if="free && currentStream && !useEmbed"
 						:key="mediaUrl(currentStream.url)"
+						:id="playerId"
 						:src="mediaUrl(currentStream.url)"
 						:poster="title.backdrop || title.poster"
 						:qualities="playerQualities"
