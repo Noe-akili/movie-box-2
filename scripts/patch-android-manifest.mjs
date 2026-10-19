@@ -3,60 +3,88 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Autorise le trafic en clair (cleartext) dans l'APK Android.
+ * Patches du projet Android généré par `tauri android init` :
  *
- * Depuis Android 9 (API 28) le cleartext est bloqué par défaut, ce qui couperait
- * les rares images/médias distants servis en `http://`. L'API elle-même passe
- * par l'IPC Tauri et le protocole `moviebox://` (aucun socket réseau).
- * On ajoute donc `android:usesCleartextTraffic="true"` sur la balise <application>.
+ * 1. Manifeste — `android:usesCleartextTraffic="true"` : depuis Android 9 le
+ *    cleartext est bloqué par défaut, ce qui couperait les images/médias en
+ *    `http://` et le serveur média loopback `http://127.0.0.1`.
  *
- * Idempotent : relance sans risque si l'attribut est deja present.
+ * 2. build.gradle.kts — `targetSdk = 34`. À partir d'Android 15, une app qui
+ *    cible l'API 35+ est affichée bord-à-bord : la barre de navigation système
+ *    recouvre le bas de la WebView et la barre d'onglets de l'app devient
+ *    invisible. La WebView Android ne remonte pas correctement l'encart de la
+ *    barre de navigation (`env(safe-area-inset-bottom)` = 0) et l'opt-out
+ *    `windowOptOutEdgeToEdgeEnforcement` est désactivé dès que targetSdk ≥ 36.
+ *    Cibler l'API 34 évite l'affichage bord-à-bord et la WebView est insetée
+ *    au-dessus des barres système, sans code Kotlin.
+ *
+ * Idempotent : relance sans risque si les patches sont déjà appliqués.
  */
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const manifest = path.join(
-	root,
-	"src-tauri",
-	"gen",
-	"android",
-	"app",
-	"src",
-	"main",
-	"AndroidManifest.xml",
-);
+const androidAppDir = path.join(root, "src-tauri", "gen", "android", "app");
+
+// --- 1. Manifeste : trafic en clair -----------------------------------------
+const manifest = path.join(androidAppDir, "src", "main", "AndroidManifest.xml");
 
 if (!existsSync(manifest)) {
 	console.error(`AndroidManifest.xml introuvable : ${manifest}`);
 	process.exit(1);
 }
 
-const contents = readFileSync(manifest, "utf8");
+let patched = readFileSync(manifest, "utf8");
+const changes = [];
 
 // Le template Tauri écrit `android:usesCleartextTraffic="${usesCleartextTraffic}"`
 // (placeholder Gradle) qui vaut "false" en release et "true" en debug. L'ancien
 // test `includes("usesCleartextTraffic")` voyait déjà le placeholder et
 // considérait le manifest comme patché : le trafic en clair restait donc
-// bloqué en release (`http://tauri.localhost` + `http://moviebox.localhost`).
-// On force ici la valeur "true" quelle que soit la forme rencontrée.
-const PLACEHOLDER = /android:usesCleartextTraffic="[^"]*"/;
-
-if (PLACEHOLDER.test(contents)) {
-	if (/android:usesCleartextTraffic="true"/.test(contents)) {
-		console.log("Manifest deja patche (usesCleartextTraffic=true).");
-		process.exit(0);
-	}
-	writeFileSync(manifest, contents.replace(PLACEHOLDER, 'android:usesCleartextTraffic="true"'));
-	console.log('Manifest patche : usesCleartextTraffic="true".');
-	process.exit(0);
+// bloqué en release. On force ici la valeur "true" quelle que soit la forme.
+const CLEARTEXT = /android:usesCleartextTraffic="[^"]*"/;
+if (CLEARTEXT.test(patched) && !/android:usesCleartextTraffic="true"/.test(patched)) {
+	patched = patched.replace(CLEARTEXT, 'android:usesCleartextTraffic="true"');
+	changes.push('manifest: usesCleartextTraffic="true"');
 }
 
-const patched = contents.replace(/<application\b/, (tag) =>
-	`${tag}\n        android:usesCleartextTraffic="true"`,
-);
+if (!/android:usesCleartextTraffic=/.test(patched)) {
+	const next = patched.replace(
+		/<application\b/,
+		(tag) => `${tag}\n        android:usesCleartextTraffic="true"`,
+	);
+	if (next === patched) {
+		console.error("Balise <application> introuvable : patch impossible.");
+		process.exit(1);
+	}
+	patched = next;
+	changes.push('manifest: usesCleartextTraffic="true"');
+}
 
-if (patched === contents) {
-	console.error("Balise <application> introuvable : patch impossible.");
+if (changes.length === 0) {
+	console.log("Manifest deja patche.");
+} else {
+	writeFileSync(manifest, patched);
+	console.log(`Manifest patche : ${changes.join(", ")}.`);
+}
+
+// --- 2. build.gradle.kts : targetSdk 34 (pas d'affichage bord-à-bord) --------
+const gradle = path.join(androidAppDir, "build.gradle.kts");
+
+if (!existsSync(gradle)) {
+	console.error(`build.gradle.kts introuvable : ${gradle}`);
 	process.exit(1);
 }
 
-writeFileSync(manifest, patched);
-console.log("Manifest patche : android:usesCleartextTraffic=\"true\" ajoute.");
+const TARGET_SDK = /(\btargetSdk\s*=\s*)(\d+)/;
+const gradleContents = readFileSync(gradle, "utf8");
+const match = gradleContents.match(TARGET_SDK);
+
+if (!match) {
+	console.error("Champ targetSdk introuvable dans build.gradle.kts : patch impossible.");
+	process.exit(1);
+}
+
+if (match[2] === "34") {
+	console.log("build.gradle.kts deja patche (targetSdk = 34).");
+} else {
+	writeFileSync(gradle, gradleContents.replace(TARGET_SDK, "$134"));
+	console.log(`build.gradle.kts patche : targetSdk ${match[2]} -> 34.`);
+}

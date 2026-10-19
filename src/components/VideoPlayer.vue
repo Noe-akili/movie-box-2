@@ -3,6 +3,16 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import Artplayer from "artplayer";
 import fr from "artplayer/i18n/fr";
 
+// Pas de ±10 s par double-tap : ArtPlayer ne propose que « double-tap = lecture »
+// sur mobile et « double-clic = plein écran » sur bureau. On neutralise ces deux
+// comportements pour brancher notre propre saut avant/arrière (voir plus bas).
+Artplayer.SEEK_STEP = 10;
+Artplayer.MOBILE_DBCLICK_PLAY = false;
+Artplayer.DBCLICK_FULLSCREEN = false;
+
+/** Saut appliqué par le double-tap/double-clic (±10 s). */
+const DBLCLICK_SEEK = 10;
+
 /**
  * Lecteur vidéo basé sur ArtPlayer (remplace la balise <video> native).
  *
@@ -88,6 +98,20 @@ const resume = () => {
 	}
 };
 
+/**
+ * Double-tap / double-clic : côté gauche = reculer de 10 s, côté droit =
+ * avancer de 10 s, au centre = lecture/pause. Le côté est déduit de la position
+ * horizontale du clic rapportée à la largeur du lecteur (0 → gauche, 1 → droite).
+ */
+const handleDoubleClick = (event) => {
+	if (!player || !player.duration) return;
+	const rect = container.value?.getBoundingClientRect();
+	const ratio = rect && rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
+	if (ratio < 0.35) player.backward = DBLCLICK_SEEK;
+	else if (ratio > 0.65) player.forward = DBLCLICK_SEEK;
+	else player.toggle();
+};
+
 const create = () => {
 	if (!container.value || !props.src) return;
 
@@ -128,6 +152,7 @@ const create = () => {
 		emit("ready");
 	});
 	player.on("video:error", () => emit("error"));
+	player.on("dblclick", handleDoubleClick);
 	player.on("pause", () => {
 		if (player) writeProgress(player.currentTime);
 	});

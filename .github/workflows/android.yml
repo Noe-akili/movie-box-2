@@ -87,7 +87,7 @@ jobs:
       - name: Install the app logo as Android launcher icons
         run: node scripts/install-android-icons.mjs
 
-      - name: Patch Android manifest (cleartext -> images/medias distants)
+      - name: Patch Android project (cleartext + targetSdk sans bord-a-bord)
         run: node scripts/patch-android-manifest.mjs
 
       # Un keystore stable (secret) signe toutes les versions avec la MEME

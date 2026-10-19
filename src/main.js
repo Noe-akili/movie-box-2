@@ -7,10 +7,11 @@ import "./index.css";
  * Démarrage de l'application.
  *
  * Sur Android (Tauri), le backend Rust est embarqué dans le processus de l'app.
- * Les appels API passent par l'IPC (aucun serveur réseau) et les flux média par
- * le protocole `moviebox://`. On interroge Tauri pour connaître cette origine
- * virtuelle avant de monter l'app, afin que les balises `<video>` visent le bon
- * protocole.
+ * Les appels API passent par l'IPC (aucun serveur réseau). Les flux média sont
+ * servis par un petit serveur HTTP loopback (`http://127.0.0.1:<port>`) qui gère
+ * les requêtes `Range` (seek) ; sur bureau, c'est le protocole `moviebox://`.
+ * On interroge Tauri pour connaître cette origine avant de monter l'app, afin
+ * que les balises `<video>` visent la bonne.
  */
 async function waitForTauri(timeoutMs = 3000) {
 	const start = Date.now();
@@ -46,23 +47,19 @@ function readEnvInset(side) {
 /**
  * Applique les encarts sûrs à la racine CSS (`--safe-top` / `--safe-bottom`).
  *
- * `env()` couvre iOS et les WebView Android récentes. Sur les WebView Android
- * qui ne remontent pas l'encart (barre de statut), on pose un repli pour que la
- * barre supérieure ne passe pas sous la barre de statut de l'appareil.
+ * `env()` couvre iOS et les WebView Android récentes. Sur Android, l'APK cible
+ * l'API 34 (voir `scripts/patch-android-manifest.mjs`) : l'affichage bord-à-bord
+ * n'est pas imposé et la WebView est déjà insetée au-dessus des barres système,
+ * donc aucun repli n'est nécessaire (les encarts `env()` valent 0).
  */
 function applySafeAreaInsets() {
-	if (typeof document === "undefined" || typeof navigator === "undefined") return;
+	if (typeof document === "undefined") return;
 	const root = document.documentElement;
 
 	const top = readEnvInset("top");
 	const bottom = readEnvInset("bottom");
 	if (top > 0) root.style.setProperty("--safe-top", `${top}px`);
 	if (bottom > 0) root.style.setProperty("--safe-bottom", `${bottom}px`);
-
-	const isAndroid = /android/i.test(navigator.userAgent);
-	const isTauri = Boolean(window.__TAURI__ || window.__TAURI_INTERNALS__);
-	if (top === 0 && isTauri && isAndroid) root.style.setProperty("--safe-top", "26px");
-	if (bottom === 0 && isTauri && isAndroid) root.style.setProperty("--safe-bottom", "12px");
 }
 
 async function bootstrap() {

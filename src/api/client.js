@@ -4,11 +4,12 @@ import { useSettings } from "../stores/settings";
 
 /**
  * Origine virtuelle du backend embarqué, définie au démarrage par l'app Tauri
- * (`window.__SERVER_ORIGIN__`, ex. « http://moviebox.localhost »). Vide en web.
+ * (`window.__SERVER_ORIGIN__`). Vide en web.
  *
- * Aucun serveur `127.0.0.1` n'est utilisé : la WebView Android ne peut pas
- * joindre de serveur loopback externe. L'API passe par l'IPC Tauri et les flux
- * média par le protocole `moviebox://`.
+ * L'API passe toujours par l'IPC Tauri. Les flux média utilisent, sur Android,
+ * un serveur HTTP loopback (`http://127.0.0.1:<port>`) — le protocole
+ * `moviebox://` ne sait pas honorer les requêtes `Range` (seek) — et le
+ * protocole `moviebox://` ailleurs.
  */
 /**
  * Origine de repli du protocole média embarqué. Utilisée si la commande
@@ -41,7 +42,8 @@ export const apiBase = () =>
 
 /**
  * Absolutise une URL média servie par notre backend (`/api/...`).
- * Sur Android, elle devient `http://moviebox.localhost/api/...` (protocole Tauri).
+ * Sur Android, elle devient `http://127.0.0.1:<port>/api/...` (serveur média
+ * loopback) ; sur bureau, `moviebox://localhost/api/...` (protocole Tauri).
  */
 export const mediaUrl = (url) =>
 	url && url.startsWith("/") && serverOrigin() ? `${serverOrigin()}${url}` : url;

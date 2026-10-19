@@ -1,13 +1,17 @@
 //! Application Tauri (Android / desktop) pour Movie Box.
 //!
-//! Le backend Rust (`movie-box-server`) n'ouvre **aucun port réseau** : il est
-//! appelé directement depuis la WebView via deux canaux internes à Tauri —
+//! Le backend Rust (`movie-box-server`) est appelé principalement via deux
+//! canaux internes à Tauri —
 //! 1. l'IPC (`invoke("api_request")`) pour toutes les requêtes JSON ;
 //! 2. un protocole d'URL personnalisé (`moviebox://`) pour les flux binaires
 //!    (lecture vidéo, fichiers téléchargés) qui ont besoin d'une vraie URL.
 //!
-//! Aucun serveur `127.0.0.1` n'est utilisé : la WebView Android ne peut pas
-//! joindre de serveur loopback externe.
+//! Sur Android, le protocole personnalisé ne sait pas honorer les requêtes
+//! `Range` : la WebView ré-applique la plage demandée au corps 206 déjà découpé
+//! (bug wry #1864), si bien que la lecture redémarre à chaque avance. On expose
+//! donc en plus un petit serveur HTTP sur `127.0.0.1` (port éphémère) qui, lui,
+//! gère correctement les plages et permet le seek. Le reste des plateformes
+//! continue d'utiliser `moviebox://`.
 
 mod diag;
 
@@ -25,6 +29,19 @@ use tower::ServiceExt;
 const PROTOCOL_ORIGIN: &str = "http://moviebox.localhost";
 #[cfg(not(any(target_os = "android", target_os = "windows")))]
 const PROTOCOL_ORIGIN: &str = "moviebox://localhost";
+
+/// Origine du serveur média HTTP loopback (`http://127.0.0.1:<port>`), publiée
+/// par `setup()` sur Android. Tant qu'elle est vide, on retombe sur le protocole
+/// personnalisé `PROTOCOL_ORIGIN`.
+static MEDIA_ORIGIN: OnceLock<String> = OnceLock::new();
+
+/// Origine média effective : loopback HTTP si disponible, sinon `moviebox://`.
+fn effective_origin() -> String {
+	MEDIA_ORIGIN
+		.get()
+		.cloned()
+		.unwrap_or_else(|| PROTOCOL_ORIGIN.to_string())
+}
 
 /// En-têtes relayés depuis la WebView vers le routeur (le reste est ignoré :
 /// `host`, `content-length`, etc. n'ont pas de sens pour un routeur interne).
@@ -59,7 +76,7 @@ struct ApiResponse {
 /// Origine du backend embarqué (utilisée pour construire les URLs média).
 #[tauri::command]
 fn server_origin() -> String {
-	PROTOCOL_ORIGIN.to_string()
+	effective_origin()
 }
 
 /// Exécute une requête de l'API contre le routeur Axum, sans passer par le réseau.
@@ -137,7 +154,7 @@ struct DiagReport {
 fn backend_diag(backend: tauri::State<'_, Backend>) -> DiagReport {
 	DiagReport {
 		log: diag::snapshot(),
-		server_origin: PROTOCOL_ORIGIN.to_string(),
+		server_origin: effective_origin(),
 		router_ready: backend.router.get().is_some(),
 		platform: std::env::consts::OS.to_string(),
 		tauri_version: tauri::VERSION.to_string(),
@@ -213,6 +230,53 @@ async fn handle_protocol_request(
 	}
 
 	out.body(bytes.to_vec()).unwrap()
+}
+
+/// Démarre le serveur média HTTP loopback (cf. commentaire de module).
+///
+/// Compilé sur toutes les plateformes pour rester vérifiable localement, mais
+/// appelé uniquement sur Android : ailleurs le protocole `moviebox://` suffit.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+fn spawn_media_server<R: tauri::Runtime>(app: &tauri::App<R>) {
+	let router = match app.state::<Backend>().router.get().cloned() {
+		Some(router) => router,
+		None => {
+			diag::log("serveur média loopback : routeur absent, démarrage ignoré");
+			return;
+		}
+	};
+
+	let listener = match std::net::TcpListener::bind("127.0.0.1:0") {
+		Ok(listener) => listener,
+		Err(error) => {
+			diag::log(format!("serveur média loopback : bind impossible — {error}"));
+			return;
+		}
+	};
+
+	let addr = match listener.local_addr() {
+		Ok(addr) => addr,
+		Err(error) => {
+			diag::log(format!("serveur média loopback : adresse inconnue — {error}"));
+			return;
+		}
+	};
+
+	let origin = format!("http://127.0.0.1:{}", addr.port());
+	let _ = MEDIA_ORIGIN.set(origin.clone());
+	diag::log(format!("setup : serveur média loopback = {origin}"));
+
+	let _ = listener.set_nonblocking(true);
+	tauri::async_runtime::spawn(async move {
+		match tokio::net::TcpListener::from_std(listener) {
+			Ok(listener) => {
+				if let Err(error) = axum::serve(listener, router.into_make_service()).await {
+					diag::log(format!("serveur média loopback arrêté : {error}"));
+				}
+			}
+			Err(error) => diag::log(format!("serveur média loopback (tokio) : {error}")),
+		}
+	});
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -295,6 +359,12 @@ pub fn run() {
 				let router = movie_box_server::app(dist_dir);
 				let _ = app.state::<Backend>().router.set(router);
 				diag::log("setup : routeur publié");
+
+				// Serveur média HTTP loopback (Android) : le protocole
+				// personnalisé ne gère pas les requêtes `Range` (seek), un vrai
+				// socket local si. Le port est éphémère, l'écoute reste locale.
+				#[cfg(target_os = "android")]
+				spawn_media_server(app);
 			}));
 
 			match result {
