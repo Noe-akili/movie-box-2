@@ -327,6 +327,17 @@
 		padding-bottom: calc(5.5rem + var(--safe-bottom));
 	}
 
+	/* Bouton flottant de partage : au-dessus de la barre d'onglets, dans le coin. */
+	.transfer-fab {
+		bottom: calc(5.5rem + var(--safe-bottom));
+	}
+
+	@media (min-width: 1024px) {
+		.transfer-fab {
+			bottom: 1.5rem;
+		}
+	}
+
 	.pt-safe {
 		padding-top: var(--safe-top);
 	}

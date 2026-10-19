@@ -28,6 +28,8 @@ pub struct Config {
 	pub root_dir: PathBuf,
 	pub dist_dir: PathBuf,
 	pub port: u16,
+	/// Port d'écoute du partage de fichiers en Wi‑Fi local.
+	pub transfer_port: u16,
 	pub tmdb_api_key: String,
 	pub tmdb_base_url: String,
 	pub tmdb_image_base_url: String,
@@ -158,6 +160,7 @@ fn from_env() -> Config {
 	Config {
 		dist_dir: root_dir.join("dist"),
 		port,
+		transfer_port: number(&file_env, "TRANSFER_PORT", 8090) as u16,
 		tmdb_api_key,
 		tmdb_base_url: env_value(
 			&file_env,

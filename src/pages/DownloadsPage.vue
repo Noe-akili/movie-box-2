@@ -175,5 +175,15 @@ onMounted(() => refresh());
 				@action="$router.push('/free')"
 			/>
 		</section>
+
+		<!-- Bouton fixe : ouvre le partage de fichiers en Wi-Fi local. -->
+		<RouterLink
+			to="/transfers"
+			class="transfer-fab fixed right-4 z-30 grid h-14 w-14 place-items-center rounded-full bg-brand-gradient text-white shadow-glow transition-normal hover:opacity-90 active:scale-95 lg:right-8"
+			aria-label="Transferts et partage Wi-Fi"
+			title="Transferts et partage Wi-Fi"
+		>
+			<AppIcon name="transfer" :size="24" />
+		</RouterLink>
 	</div>
 </template>

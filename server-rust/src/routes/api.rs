@@ -84,6 +84,7 @@ pub fn router() -> Router {
 		.route("/title/{mediaType}/{id}", get(title))
 		.nest("/downloads", crate::routes::downloads::router())
 		.nest("/internal", crate::routes::internal::router())
+		.nest("/transfer", crate::routes::transfer::router())
 		.fallback(not_found)
 }
 

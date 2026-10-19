@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io::Write;
 
+use axum::body::Body;
+use axum::http::{header, HeaderValue, StatusCode};
+use axum::response::Response;
+
 use crate::config::config;
 use crate::error::{ApiError, Result};
 use crate::services::free::{free_remote_url, free_source_label, get_free_file};
@@ -60,6 +64,137 @@ fn now_ms() -> i64 {
 		.duration_since(UNIX_EPOCH)
 		.map(|duration| duration.as_millis() as i64)
 		.unwrap_or(0)
+}
+
+/// Type MIME d'un fichier quelconque (transferts) : table `mime_guess` puis repli vidéo.
+pub fn mime_for_name(file_name: &str) -> String {
+	mime_guess::from_path(file_name)
+		.first_raw()
+		.unwrap_or_else(|| mime_for(file_name))
+		.to_string()
+}
+
+/// Sert un fichier du disque par tranches (`Range`), en lecture ou en téléchargement.
+///
+/// Partagé par les téléchargements et le partage Wi‑Fi : le nom de fichier sert au
+/// type MIME et à l'en-tête `Content-Disposition`.
+pub async fn serve_path(
+	path: PathBuf,
+	file_name: &str,
+	range: Option<String>,
+	download: bool,
+) -> Result<Response> {
+	if !path.exists() {
+		return Err(ApiError::not_found("Fichier introuvable"));
+	}
+
+	let size = std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+	let mime = HeaderValue::from_str(&mime_for_name(file_name))
+		.unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+	let mut headers = vec![
+		(header::CONTENT_TYPE, mime),
+		(header::ACCEPT_RANGES, HeaderValue::from_static("bytes")),
+		(
+			header::CACHE_CONTROL,
+			HeaderValue::from_static("private, max-age=0"),
+		),
+		(
+			header::CONTENT_DISPOSITION,
+			HeaderValue::from_str(&format!(
+				"{}; filename*=UTF-8''{}",
+				if download { "attachment" } else { "inline" },
+				crate::services::providers::urlencode(file_name)
+			))
+			.unwrap_or_else(|_| HeaderValue::from_static("inline")),
+		),
+	];
+
+	if let Some(range) = range {
+		if let Some((start, end)) = parse_range(&range, size) {
+			if start >= size || start > end {
+				let mut response = Response::new(Body::empty());
+				*response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
+				response.headers_mut().insert(
+					header::CONTENT_RANGE,
+					HeaderValue::from_str(&format!("bytes */{size}")).unwrap(),
+				);
+				return Ok(response);
+			}
+
+			let length = end - start + 1;
+			headers.push((
+				header::CONTENT_RANGE,
+				HeaderValue::from_str(&format!("bytes {start}-{end}/{size}")).unwrap(),
+			));
+			headers.push((
+				header::CONTENT_LENGTH,
+				HeaderValue::from_str(&length.to_string()).unwrap(),
+			));
+
+			let body = read_body(path, start, length).await?;
+			let mut response = Response::new(body);
+			*response.status_mut() = StatusCode::PARTIAL_CONTENT;
+			for (name, value) in headers {
+				response.headers_mut().insert(name, value);
+			}
+			return Ok(response);
+		}
+	}
+
+	headers.push((
+		header::CONTENT_LENGTH,
+		HeaderValue::from_str(&size.to_string()).unwrap(),
+	));
+	let body = read_body(path, 0, size).await?;
+	let mut response = Response::new(body);
+	for (name, value) in headers {
+		response.headers_mut().insert(name, value);
+	}
+	Ok(response)
+}
+
+/// Analyse un en-tête `Range: bytes=a-b` (bornes absentes possibles).
+fn parse_range(value: &str, size: u64) -> Option<(u64, u64)> {
+	let rest = value.strip_prefix("bytes=")?;
+	let (raw_start, raw_end) = rest.split_once('-')?;
+	if raw_start.is_empty() && raw_end.is_empty() {
+		return None;
+	}
+
+	if raw_start.is_empty() {
+		// `bytes=-N` : les N derniers octets.
+		let suffix: u64 = raw_end.parse().ok()?;
+		let start = size.saturating_sub(suffix);
+		return Some((start, size.saturating_sub(1)));
+	}
+
+	let start: u64 = raw_start.parse().ok()?;
+	let end = if raw_end.is_empty() {
+		size.saturating_sub(1)
+	} else {
+		raw_end.parse::<u64>().ok()?.min(size.saturating_sub(1))
+	};
+	Some((start, end))
+}
+
+async fn read_body(path: PathBuf, start: u64, length: u64) -> Result<Body> {
+	use futures::TryStreamExt;
+	use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+	let file = std::fs::File::open(&path)
+		.map_err(|error| ApiError::new(500, format!("Lecture impossible : {error}")))?;
+	let mut file = tokio::fs::File::from_std(file);
+	if start > 0 {
+		if let Err(error) = file.seek(std::io::SeekFrom::Start(start)).await {
+			return Err(ApiError::new(500, format!("Lecture impossible : {error}")));
+		}
+	}
+
+	let limited = file.take(length);
+	let stream = tokio_util::io::ReaderStream::new(limited);
+	Ok(Body::from_stream(
+		stream.map_err(std::io::Error::other),
+	))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

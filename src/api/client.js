@@ -252,4 +252,12 @@ export const downloadStreamUrl = (id) =>
 export const downloadFileUrl = (id) =>
 	mediaUrl(`/api/downloads/${encodeURIComponent(id)}/file`);
 
+// --- Partage Wi-Fi local : salle de transfert entre appareils du meme reseau ---
+export const fetchTransfer = () => http.get("/transfer");
+export const startTransfer = (payload = {}) => http.post("/transfer/start", payload);
+export const stopTransfer = () => http.post("/transfer/stop");
+export const updateTransferFiles = (files) => http.put("/transfer/files", { files });
+export const removeTransferFile = (id) => http.delete(`/transfer/received/${encodeURIComponent(id)}`);
+export const clearTransferFiles = () => http.delete("/transfer/received");
+
 export default http;

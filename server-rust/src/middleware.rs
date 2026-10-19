@@ -123,7 +123,9 @@ pub async fn api_cache_control(req: Request, next: Next) -> Response {
 	let path = req.uri().path();
 	// Les flux (téléchargements et proxy média par plages d'octets) ne doivent
 	// jamais être mis en cache.
-	let cache_control = if path.starts_with("/api/downloads") || path.starts_with("/api/internal/proxy")
+	let cache_control = if path.starts_with("/api/downloads")
+		|| path.starts_with("/api/internal/proxy")
+		|| path.starts_with("/api/transfer")
 	{
 		"no-store"
 	} else if path.starts_with("/api/") {

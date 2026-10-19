@@ -9,6 +9,7 @@ const DetailPage = () => import("../pages/DetailPage.vue");
 const WatchPage = () => import("../pages/WatchPage.vue");
 const LibraryPage = () => import("../pages/LibraryPage.vue");
 const DownloadsPage = () => import("../pages/DownloadsPage.vue");
+const TransfersPage = () => import("../pages/TransfersPage.vue");
 const ProfilePage = () => import("../pages/ProfilePage.vue");
 
 const routes = [
@@ -55,6 +56,12 @@ const routes = [
 		name: "downloads",
 		component: DownloadsPage,
 		meta: { title: "Téléchargements" },
+	},
+	{
+		path: "/transfers",
+		name: "transfers",
+		component: TransfersPage,
+		meta: { title: "Transferts" },
 	},
 	{
 		path: "/profile",

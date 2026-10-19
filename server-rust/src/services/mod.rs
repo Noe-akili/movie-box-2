@@ -6,3 +6,4 @@ pub mod internal;
 pub mod moviebox;
 pub mod providers;
 pub mod tmdb;
+pub mod transfer;
