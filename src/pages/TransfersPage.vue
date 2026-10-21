@@ -38,6 +38,11 @@ const { completedItems, refresh } = useDownloads();
 
 const shareable = computed(() => completedItems.value);
 const sharedSet = computed(() => new Set(shared.value));
+const stats = computed(() => [
+	{ label: "Partagés", value: shared.value.length },
+	{ label: "Dans la salle", value: files.value.length },
+	{ label: "Reçus", value: received.value.length },
+]);
 
 const scannerOpen = ref(false);
 const joinUrl = ref("");
@@ -166,9 +171,29 @@ const onSendToRemote = async (id) => {
 };
 
 const iconFor = (file) => {
-	if ((file.mime || "").startsWith("video/")) return "film";
-	if ((file.mime || "").startsWith("image/")) return "image";
+	const mime = String(file.mime || "");
+	if (mime.startsWith("video/")) return "film";
+	if (mime.startsWith("audio/")) return "film";
+	if (mime.startsWith("image/")) return "image";
 	return "archive";
+};
+
+const labelFor = (file) => {
+	const mime = String(file.mime || "");
+	if (mime.startsWith("video/")) return "Vidéo";
+	if (mime.startsWith("audio/")) return "Audio";
+	if (mime.startsWith("image/")) return "Image";
+	if (mime === "application/pdf") return "PDF";
+	return "Fichier";
+};
+
+// Pastille colorée par type de fichier : lecture plus rapide dans les listes.
+const toneFor = (file) => {
+	const mime = String(file.mime || "");
+	if (mime.startsWith("video/")) return "bg-brand/15 text-brandSoft";
+	if (mime.startsWith("audio/")) return "bg-violet-500/15 text-violet-300";
+	if (mime.startsWith("image/")) return "bg-sky-500/15 text-sky-300";
+	return "bg-white/5 text-white/50";
 };
 
 onMounted(() => {
@@ -203,12 +228,26 @@ onUnmounted(() => stopTransferPolling());
 			<div class="surface p-5">
 				<div class="flex flex-wrap items-center justify-between gap-4">
 					<div class="flex items-center gap-3">
-						<span
-							class="h-2.5 w-2.5 rounded-full"
-							:class="running ? 'bg-emerald-400 shadow-glowSoft' : 'bg-white/25'"
-						></span>
+						<span class="relative flex h-2.5 w-2.5">
+							<span
+								v-if="running"
+								class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60"
+							></span>
+							<span
+								class="relative inline-flex h-2.5 w-2.5 rounded-full"
+								:class="running ? 'bg-emerald-400 shadow-glowSoft' : 'bg-white/25'"
+							></span>
+						</span>
 						<div>
-							<p class="font-semibold">{{ running ? "Partage actif" : "Partage arrêté" }}</p>
+							<p class="flex items-center gap-2 font-semibold">
+								{{ running ? "Partage actif" : "Partage arrêté" }}
+								<span
+									class="rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+									:class="running ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/5 text-white/40'"
+								>
+									{{ running ? "En direct" : "Hors ligne" }}
+								</span>
+							</p>
 							<p class="text-xs text-white/45">
 								{{ running ? "Les appareils du réseau peuvent échanger des fichiers." : "Démarre pour afficher un lien et un QR code." }}
 							</p>
@@ -230,8 +269,22 @@ onUnmounted(() => stopTransferPolling());
 					</button>
 				</div>
 
+				<div v-if="running" class="mt-4 grid grid-cols-3 gap-2">
+					<div
+						v-for="stat in stats"
+						:key="stat.label"
+						class="rounded-xl border border-white/5 bg-inkRaised/60 px-3 py-2 text-center"
+					>
+						<p class="text-xl font-bold tabular-nums text-white/85">{{ stat.value }}</p>
+						<p class="text-[10px] uppercase tracking-wide text-white/40">{{ stat.label }}</p>
+					</div>
+				</div>
+
 				<div v-if="running" class="mt-5 flex flex-col items-center gap-4 sm:flex-row sm:items-start">
-					<QrCode :value="url" :size="200" />
+					<div class="flex shrink-0 flex-col items-center gap-2">
+						<QrCode :value="url" :size="200" />
+						<p class="text-[10px] uppercase tracking-wide text-white/35">Scanne pour rejoindre</p>
+					</div>
 
 					<div class="min-w-0 flex-1 space-y-3">
 						<div>
@@ -270,11 +323,17 @@ onUnmounted(() => stopTransferPolling());
 					</div>
 				</div>
 
-				<div v-if="remote" class="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3">
-					<div class="flex flex-wrap items-center justify-between gap-2">
+				<div v-if="remote" class="overflow-hidden rounded-2xl border border-emerald-500/20 bg-emerald-500/5">
+					<div class="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/15 px-3 py-2.5">
 						<div class="min-w-0">
-							<p class="text-xs font-semibold text-emerald-300">Salle rejointe</p>
-							<p class="break-all font-mono text-[11px] text-white/50">{{ remote.url }}</p>
+							<p class="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+								<span class="relative flex h-2 w-2">
+									<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60"></span>
+									<span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-400"></span>
+								</span>
+								Salle rejointe
+							</p>
+							<p class="mt-0.5 break-all font-mono text-[11px] text-white/50">{{ remote.url }}</p>
 						</div>
 						<button type="button" class="chip" @click="onLeave">
 							<AppIcon name="close" :size="13" />
@@ -282,24 +341,29 @@ onUnmounted(() => stopTransferPolling());
 						</button>
 					</div>
 
-					<div class="mt-3 border-t border-white/5 pt-3">
-						<p class="mb-2 text-xs font-semibold text-white/70">
-							Fichiers de la salle ({{ remoteFiles.length }})
+					<div class="px-3 py-3">
+						<p class="mb-2 flex items-center justify-between text-xs font-semibold text-white/70">
+							<span>Fichiers de la salle</span>
+							<span class="rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] tabular-nums text-white/45">
+								{{ remoteFiles.length }}
+							</span>
 						</p>
-						<p v-if="!remoteFiles.length" class="text-xs text-white/40">
+						<p v-if="!remoteFiles.length" class="py-3 text-center text-xs text-white/40">
 							Aucun fichier pour l'instant.
 						</p>
-						<ul v-else class="max-h-64 space-y-2 overflow-y-auto pr-1">
+						<ul v-else class="max-h-64 space-y-1.5 overflow-y-auto pr-1">
 							<li
 								v-for="file in remoteFiles"
 								:key="file.id"
-								class="flex items-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2"
+								class="flex items-center gap-2.5 rounded-xl border border-white/5 bg-ink/40 px-2.5 py-2"
 							>
-								<AppIcon :name="iconFor(file)" :size="15" class="text-white/40" />
+								<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl" :class="toneFor(file)">
+									<AppIcon :name="iconFor(file)" :size="16" />
+								</span>
 								<div class="min-w-0 flex-1">
-									<p class="truncate text-xs font-semibold text-white/80">{{ file.name }}</p>
+									<p class="truncate text-xs font-semibold text-white/85">{{ file.name }}</p>
 									<p class="text-[11px] text-white/40">
-										{{ formatSize(file.size) }}
+										{{ labelFor(file) }} · {{ formatSize(file.size) }}
 										<span v-if="file.uploader"> · {{ file.uploader }}</span>
 									</p>
 								</div>
@@ -315,17 +379,23 @@ onUnmounted(() => stopTransferPolling());
 						</ul>
 					</div>
 
-					<div v-if="shareable.length" class="mt-3 border-t border-white/5 pt-3">
+					<div v-if="shareable.length" class="border-t border-emerald-500/15 px-3 py-3">
 						<p class="mb-2 text-xs font-semibold text-white/70">Envoyer un de mes téléchargements</p>
 						<ul class="max-h-48 space-y-1.5 overflow-y-auto pr-1">
 							<li
 								v-for="item in shareable"
 								:key="`remote-${item.id}`"
-								class="flex items-center gap-2 rounded-lg border border-white/5 px-2.5 py-1.5"
+								class="flex items-center gap-2.5 rounded-xl border border-white/5 bg-ink/40 px-2.5 py-1.5"
 							>
-								<span class="min-w-0 flex-1 truncate text-[11px] text-white/70">
-									{{ item.title || item.fileName }}
+								<span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/5 text-white/50">
+									<AppIcon name="archive" :size="16" />
 								</span>
+								<div class="min-w-0 flex-1">
+									<p class="truncate text-[11px] font-semibold text-white/75">
+										{{ item.title || item.fileName }}
+									</p>
+									<p class="text-[10px] text-white/35">{{ formatSize(item.bytesTotal) }}</p>
+								</div>
 								<button
 									type="button"
 									class="chip !py-1 text-[11px]"
@@ -340,11 +410,16 @@ onUnmounted(() => stopTransferPolling());
 					</div>
 				</div>
 
-				<div v-else class="space-y-3">
+				<div v-else class="space-y-3 rounded-2xl border border-dashed border-white/10 bg-white/[0.015] p-4">
 					<button type="button" class="btn btn-solid w-full" @click="scannerOpen = true">
 						<AppIcon name="camera" :size="16" />
 						<span>Scanner un QR code</span>
 					</button>
+					<div class="flex items-center gap-3 text-[10px] uppercase tracking-wide text-white/30">
+						<span class="h-px flex-1 bg-white/10"></span>
+						<span>ou</span>
+						<span class="h-px flex-1 bg-white/10"></span>
+					</div>
 					<div class="flex gap-2">
 						<input
 							v-model="joinUrl"
@@ -402,9 +477,15 @@ onUnmounted(() => stopTransferPolling());
 						:key="item.id"
 						class="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2"
 					>
-						<AppIcon name="archive" :size="16" class="text-white/40" />
-						<span class="min-w-0 flex-1 truncate text-sm text-white/80">{{ item.title || item.fileName }}</span>
-						<span class="text-xs text-white/40">{{ formatSize(item.bytesTotal) }}</span>
+						<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand/15 text-brandSoft">
+							<AppIcon name="archive" :size="17" />
+						</span>
+						<div class="min-w-0 flex-1">
+							<p class="truncate text-sm text-white/85">{{ item.title || item.fileName }}</p>
+							<p class="text-[11px] text-white/40">
+								{{ formatSize(item.bytesTotal) }} · prêt à partager
+							</p>
+						</div>
 						<button
 							type="button"
 							class="chip"
@@ -433,15 +514,20 @@ onUnmounted(() => stopTransferPolling());
 						:key="file.id"
 						class="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2"
 					>
-						<AppIcon :name="iconFor(file)" :size="16" class="text-white/40" />
+						<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl" :class="toneFor(file)">
+							<AppIcon :name="iconFor(file)" :size="17" />
+						</span>
 						<div class="min-w-0 flex-1">
-							<p class="truncate text-sm text-white/80">{{ file.name }}</p>
-							<p class="text-xs text-white/40">
-								{{ formatSize(file.size) }}
+							<p class="truncate text-sm text-white/85">{{ file.name }}</p>
+							<p class="text-[11px] text-white/40">
+								{{ labelFor(file) }} · {{ formatSize(file.size) }}
 								<span v-if="file.uploader"> · {{ file.uploader }}</span>
 								<span v-if="file.kind === 'download'"> · depuis mes téléchargements</span>
 							</p>
 						</div>
+						<span class="rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] font-medium text-white/45">
+							{{ file.kind === "download" ? "Partagé" : "Reçu" }}
+						</span>
 					</li>
 				</ul>
 			</div>
@@ -470,11 +556,13 @@ onUnmounted(() => stopTransferPolling());
 						:key="file.id"
 						class="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2"
 					>
-						<AppIcon :name="iconFor(file)" :size="16" class="text-white/40" />
+						<span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl" :class="toneFor(file)">
+							<AppIcon :name="iconFor(file)" :size="17" />
+						</span>
 						<div class="min-w-0 flex-1">
-							<p class="truncate text-sm text-white/80">{{ file.name }}</p>
-							<p class="text-xs text-white/40">
-								{{ formatSize(file.size) }}
+							<p class="truncate text-sm text-white/85">{{ file.name }}</p>
+							<p class="text-[11px] text-white/40">
+								{{ labelFor(file) }} · {{ formatSize(file.size) }}
 								<span v-if="file.uploader"> · de {{ file.uploader }}</span>
 							</p>
 						</div>

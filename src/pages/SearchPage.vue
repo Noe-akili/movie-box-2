@@ -106,8 +106,8 @@ onMounted(() => {
 </script>
 
 <template>
-	<div class="pb-nav">
-		<header class="sticky top-14 z-30 border-b border-white/5 bg-ink/95 px-4 py-3 backdrop-blur-xl md:top-16 md:px-6 lg:px-8">
+	<div class="pb-nav search-offset">
+		<header class="search-sticky sticky z-30 border-b border-white/5 bg-ink/95 px-4 py-3 backdrop-blur-xl md:px-6 lg:px-8">
 			<div class="mx-auto max-w-[1800px] space-y-3">
 				<div class="flex items-center gap-2 rounded-xl border border-inkLine bg-inkCard px-3 py-2.5">
 					<AppIcon name="search" :size="18" class="text-white/40" />

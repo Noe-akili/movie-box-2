@@ -4,9 +4,10 @@
  * `onLoadMore` est appelé une seule fois par « seuil » atteint (on attend la fin
  * du chargement précédent), ce qui évite les appels en rafale pendant le scroll.
  * Le témoin est renvoyé par la fonction : à poser sur un élément du template
- * (`ref="sentinel"`).
+ * (`ref="sentinel"`). Comme le témoin est souvent rendu après le premier
+ * chargement (squelette puis résultats), on l'observe dès qu'il apparaît.
  */
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 
 export const useInfiniteScroll = (onLoadMore, { enabled, rootMargin = "600px" } = {}) => {
 	const sentinel = ref(null);
@@ -25,18 +26,28 @@ export const useInfiniteScroll = (onLoadMore, { enabled, rootMargin = "600px" } 
 		}
 	};
 
-	onMounted(() => {
-		if (typeof IntersectionObserver === "undefined") return;
-
+	const ensureObserver = () => {
+		if (observer || typeof IntersectionObserver === "undefined") return;
 		observer = new IntersectionObserver(
 			(entries) => {
-				if (entries[0]?.isIntersecting) run();
+				if (entries.some((entry) => entry.isIntersecting)) run();
 			},
 			{ rootMargin: `${rootMargin} 0px` },
 		);
+	};
 
-		if (sentinel.value) observer.observe(sentinel.value);
-	});
+	// Le témoin peut être monté/démonté au fil des états (chargement, résultats
+	// vides, changement de filtre) : on (ré)observe à chaque apparition.
+	watch(
+		sentinel,
+		(element, previous) => {
+			if (previous) observer?.unobserve(previous);
+			if (!element) return;
+			ensureObserver();
+			observer?.observe(element);
+		},
+		{ flush: "post" },
+	);
 
 	onBeforeUnmount(() => observer?.disconnect());
 

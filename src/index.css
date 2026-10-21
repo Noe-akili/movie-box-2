@@ -361,6 +361,22 @@
 		}
 	}
 
+	/* En-tête collant d'une page : se cale exactement sous la barre supérieure. */
+	.search-offset {
+		padding-top: calc(4rem + var(--safe-top));
+	}
+	.search-sticky {
+		top: calc(4rem + var(--safe-top));
+	}
+	@media (min-width: 768px) {
+		.search-offset {
+			padding-top: calc(4.5rem + var(--safe-top));
+		}
+		.search-sticky {
+			top: calc(4.5rem + var(--safe-top));
+		}
+	}
+
 	/* Variante plus haute (fiches détail : 6rem / 8rem). */
 	.page-top-xl {
 		padding-top: calc(6rem + var(--safe-top));
