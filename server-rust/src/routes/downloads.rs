@@ -8,7 +8,7 @@ use axum::{Json, Router};
 use serde_json::{json, Value};
 
 use crate::error::{ApiError, Result};
-use crate::services::downloads::{file_path_of, manager, public_entry, serve_path};
+use crate::services::downloads::{manager, playback_path_of, public_entry, serve_path};
 
 pub fn router() -> Router {
 	Router::new()
@@ -56,7 +56,7 @@ async fn stream(
 	request: axum::extract::Request,
 ) -> Result<Response> {
 	let range = range_header(&request);
-	serve(&id, range, false).await
+	serve(&id, range, false, true).await
 }
 
 async fn file(
@@ -64,7 +64,7 @@ async fn file(
 	request: axum::extract::Request,
 ) -> Result<Response> {
 	let range = range_header(&request);
-	serve(&id, range, true).await
+	serve(&id, range, true, false).await
 }
 
 fn range_header(request: &axum::extract::Request) -> Option<String> {
@@ -76,15 +76,26 @@ fn range_header(request: &axum::extract::Request) -> Option<String> {
 }
 
 /// Sert un fichier téléchargé (lecture inline ou enregistrement), avec support de `Range`.
-async fn serve(id: &str, range: Option<String>, download: bool) -> Result<Response> {
+///
+/// La lecture accepte un transfert inachevé en servant la partie déjà reçue ;
+/// l'enregistrement sur l'appareil attend, lui, la fin du téléchargement.
+async fn serve(
+	id: &str,
+	range: Option<String>,
+	download: bool,
+	allow_partial: bool,
+) -> Result<Response> {
 	let entry = manager().entry(id)?;
 
-	if entry.status != "completed" {
+	if !allow_partial && entry.status != "completed" {
 		return Err(ApiError::new(
 			409,
 			"Ce téléchargement n'est pas encore terminé",
 		));
 	}
 
-	serve_path(file_path_of(&entry), &entry.file_name, range, download).await
+	let path = playback_path_of(&entry).ok_or_else(|| {
+		ApiError::new(409, "Ce téléchargement n'a pas encore de données lisibles")
+	})?;
+	serve_path(path, &entry.file_name, range, download).await
 }

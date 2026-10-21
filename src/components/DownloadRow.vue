@@ -22,6 +22,8 @@ const isBusy = ref(false);
 
 const isActive = computed(() => ["queued", "downloading"].includes(props.entry.status));
 const isDone = computed(() => props.entry.status === "completed");
+const canPlay = computed(() => Boolean(props.entry.playable));
+const playLabel = computed(() => (isDone.value ? "Regarder" : "Lire en cours"));
 const isFailed = computed(() => props.entry.status === "error");
 const isPaused = computed(() => ["paused", "canceled"].includes(props.entry.status));
 
@@ -135,7 +137,7 @@ const onRemove = async (close) => {
 	<li class="surface p-3 transition-normal hover:border-white/15">
 		<div class="flex items-center gap-3">
 			<RouterLink
-				:to="isDone && props.entry.playable ? { name: 'watch-local', params: { id: props.entry.id } } : '/downloads'"
+				:to="canPlay ? { name: 'watch-local', params: { id: props.entry.id } } : '/downloads'"
 				class="relative h-14 w-24 shrink-0 overflow-hidden rounded-lg bg-inkCard ring-1 ring-white/5"
 			>
 				<img
@@ -169,14 +171,14 @@ const onRemove = async (close) => {
 				</p>
 			</div>
 
-			<!-- Une seule action visible : lire quand le fichier est prêt. -->
+			<!-- Une seule action visible : lire dès que des données sont disponibles. -->
 			<RouterLink
-				v-if="isDone && props.entry.playable"
+				v-if="canPlay"
 				:to="{ name: 'watch-local', params: { id: props.entry.id } }"
 				class="btn btn-inverse shrink-0 px-3 py-2 text-xs"
 			>
 				<AppIcon name="play" :size="14" filled />
-				<span class="hidden sm:inline">Regarder</span>
+				<span class="hidden sm:inline">{{ playLabel }}</span>
 			</RouterLink>
 
 			<!-- Menu « … » : enregistrer, pause/reprise, suppression. -->

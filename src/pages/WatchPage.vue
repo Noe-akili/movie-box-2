@@ -75,6 +75,13 @@ const onPlayerError = () => {
 	const stream = currentStream.value;
 	if (!stream?.url) return;
 
+	if (isPartialLocal.value) {
+		playbackError.value =
+			"Ce fichier n'est pas encore assez téléchargé pour être lu. Réessaie dans un instant, le transfert continue.";
+		toast.error("Lecture partielle impossible pour l'instant");
+		return;
+	}
+
 	if (playbackMode.value === "default") {
 		// Flux proxifié : on tente le CDN en direct. Flux direct : on tente le proxy.
 		if (stream.url.startsWith("/") && stream.directUrl) {
@@ -131,6 +138,9 @@ const playerId = computed(() => {
 const { items: localDownloads } = useDownloads();
 // Entree brute du fichier local en cours (permet de trouver l'episode suivant).
 const localEntry = ref(null);
+const isPartialLocal = computed(
+	() => isLocal.value && Boolean(localEntry.value) && localEntry.value.status !== "completed",
+);
 
 const isSameSeries = (entry, target) =>
 	entry.kind === "episode" && target?.kind === "episode" && entry.seriesTitle === target.seriesTitle;
@@ -314,7 +324,9 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 				<p v-if="title" class="text-[11px] text-white/40">
 					{{
 						isLocal
-							? "Lecture hors ligne"
+							? isPartialLocal
+								? `Lecture partielle — ${formatSize(localEntry.bytesReceived)} / ${formatSize(localEntry.bytesTotal)}`
+								: "Lecture hors ligne"
 							: free
 								? "Lecture gratuite — domaine public / libre"
 								: "Bande-annonce officielle et sources légales"
@@ -402,6 +414,14 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 								officielles, dont les offres gratuites financées par la publicité.
 							</p>
 						</div>
+					</div>
+
+					<div
+						v-if="isPartialLocal"
+						class="pointer-events-none absolute inset-x-0 top-0 z-20 bg-black/70 px-4 py-2 text-center text-[11px] text-white/75 backdrop-blur"
+					>
+						Lecture partielle : {{ formatSize(localEntry.bytesReceived) }} /
+						{{ formatSize(localEntry.bytesTotal) }} — le téléchargement continue en arrière-plan
 					</div>
 
 					<div

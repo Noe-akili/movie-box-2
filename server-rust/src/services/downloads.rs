@@ -286,8 +286,20 @@ pub fn file_path_of(entry: &DownloadEntry) -> PathBuf {
 	downloads_dir().join(format!("{}{}", entry.id, extension))
 }
 
-fn partial_path_of(entry: &DownloadEntry) -> PathBuf {
+pub fn partial_path_of(entry: &DownloadEntry) -> PathBuf {
 	PathBuf::from(format!("{}{}", file_path_of(entry).display(), PARTIAL_SUFFIX))
+}
+
+/// Chemin lisible pendant le transfert : le fichier final une fois terminé,
+/// sinon la partie déjà reçue (`.part`) pour permettre une lecture partielle.
+pub fn playback_path_of(entry: &DownloadEntry) -> Option<PathBuf> {
+	if entry.status == "completed" {
+		let path = file_path_of(entry);
+		return path.exists().then_some(path);
+	}
+	let partial = partial_path_of(entry);
+	let size = std::fs::metadata(&partial).map(|meta| meta.len()).unwrap_or(0);
+	(size > 0).then_some(partial)
 }
 
 fn clean_text(value: Option<&str>, max: usize) -> Option<String> {
@@ -369,7 +381,11 @@ pub fn public_entry(entry: &DownloadEntry) -> Value {
 		"progress": entry.progress(),
 		"speedBps": entry.speed_bps,
 		"etaSeconds": entry.eta_seconds(),
-		"playable": entry.status == "completed" && is_playable_file(&entry.file_name),
+		// Un fichier encore en cours reste lisible depuis sa partie déjà reçue :
+		// la lecture reprend au dernier octet disponible.
+		"partial": entry.status != "completed",
+		"playable": is_playable_file(&entry.file_name)
+			&& (entry.status == "completed" || entry.bytes_received > 0),
 		"streamUrl": format!("/api/downloads/{}/stream", urlencode_id(&entry.id)),
 		"fileUrl": format!("/api/downloads/{}/file", urlencode_id(&entry.id)),
 		"createdAt": entry.created_at,

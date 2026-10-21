@@ -232,16 +232,40 @@ const lastDownloadedNumber = (season) =>
 
 const selectionFloor = computed(() => lastDownloadedNumber(selectedSeason.value));
 
-/** Première saison contenant au moins un épisode qui n'est pas encore possédé. */
-const firstMissingSeason = () =>
-	seasons.value.find((season) =>
-		episodes.value.some(
-			(episode) =>
-				(episode.season ?? 1) === season && episodeState(episode) !== "downloaded",
-		),
-	) ??
-	seasons.value[0] ??
-	1;
+/** Vrai si la saison a au moins un épisode non possédé après le dernier téléchargé. */
+const hasMissingAfterFloor = (season) => {
+	const floor = lastDownloadedNumber(season);
+	return episodes.value.some(
+		(episode) =>
+			(episode.season ?? 1) === season &&
+			(episode.number ?? 0) > floor &&
+			episodeState(episode) !== "downloaded",
+	);
+};
+
+const isInProgressSeason = (season) =>
+	lastDownloadedNumber(season) > 0 && hasMissingAfterFloor(season);
+
+/**
+ * Saison à compléter en priorité : la dernière saison commencée (au moins un
+ * épisode possédé) mais incomplète. On évite ainsi d'ouvrir une saison déjà
+ * terminée et courte (ex. S6 = 10 épisodes) quand une autre saison est en cours.
+ */
+const firstMissingSeason = () => {
+	const inProgress = [...seasons.value].reverse().find(isInProgressSeason);
+	if (inProgress) return inProgress;
+
+	return (
+		seasons.value.find((season) =>
+			episodes.value.some(
+				(episode) =>
+					(episode.season ?? 1) === season && episodeState(episode) !== "downloaded",
+			),
+		) ??
+		seasons.value[0] ??
+		1
+	);
+};
 
 // Les épisodes déjà possédés ne sont pas proposés à la sélection (pas de doublon).
 const selectableEpisodes = computed(() =>
@@ -538,9 +562,14 @@ onMounted(async () => {
 
 	if (effectiveSeries.value) {
 		if (props.autoMissing) {
+			// L'indice du dossier (dernière saison possédée) peut être une saison
+			// déjà complète : on ne l'ouvre que s'il reste des épisodes après le
+			// dernier téléchargé, sinon on choisit la saison en cours.
 			const wanted = Number(props.initialSeason);
 			selectedSeason.value =
-				Number.isFinite(wanted) && seasons.value.includes(wanted)
+				Number.isFinite(wanted) &&
+				seasons.value.includes(wanted) &&
+				hasMissingAfterFloor(wanted)
 					? wanted
 					: firstMissingSeason();
 			step.value = "episodes";

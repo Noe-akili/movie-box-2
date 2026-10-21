@@ -363,12 +363,12 @@ const onRemoveMany = (close) => {
 							<ActionMenu :label="`Actions pour ${entry.episodeName || entry.title}`" :width="224">
 								<template #default="{ close }">
 									<RouterLink
-										v-if="isDone(entry) && entry.playable"
+										v-if="entry.playable"
 										:to="{ name: 'watch-local', params: { id: entry.id } }"
 										class="menu-item"
 									>
 										<AppIcon name="play" :size="15" filled />
-										<span>Lire</span>
+										<span>{{ isDone(entry) ? "Lire" : "Lire en cours" }}</span>
 									</RouterLink>
 
 									<a
