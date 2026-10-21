@@ -63,6 +63,10 @@ const seasons = computed(() => {
 	return list.sort((a, b) => a - b);
 });
 
+/** Nombre total d'épisodes listés pour une saison (toutes qualités confondues). */
+const seasonCount = (season) =>
+	episodes.value.filter((episode) => (episode.season ?? 1) === season).length;
+
 const step = ref("choose");
 const selectedQuality = ref(null);
 const selectedSeason = ref(null);
@@ -683,6 +687,7 @@ onBeforeUnmount(() => {
 									@click="((selectedSeason = season), (selectedKeys = []))"
 								>
 									Saison {{ season }}
+									<span class="text-white/40">({{ seasonCount(season) }})</span>
 								</button>
 							</div>
 						</template>
@@ -698,6 +703,9 @@ onBeforeUnmount(() => {
 								</span>
 								<span v-if="autoMissing && selectionFloor" class="text-white/35">
 									· à partir de l'épisode {{ selectionFloor + 1 }}
+								</span>
+								<span class="text-white/35">
+									· {{ seasonEpisodes.length }} épisode{{ seasonEpisodes.length > 1 ? "s" : "" }}
 								</span>
 							</p>
 							<p
