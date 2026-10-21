@@ -1,8 +1,13 @@
 import { computed, ref } from "vue";
 import {
 	clearTransferFiles,
+	fetchRemoteTransferFiles,
 	fetchTransfer,
+	joinTransferRoom,
+	leaveTransferRoom,
 	removeTransferFile,
+	shareAllTransferFiles,
+	shareTransferDownloads,
 	startTransfer as apiStart,
 	stopTransfer as apiStop,
 	updateTransferFiles,
@@ -18,8 +23,11 @@ const state = ref({
 	url: null,
 	port: null,
 	shared: [],
+	sharedAll: true,
 	received: [],
 	files: [],
+	remote: null,
+	remoteFiles: [],
 });
 const isLoading = ref(false);
 const lastError = ref(null);
@@ -32,9 +40,26 @@ const url = computed(() => state.value.url || "");
 const received = computed(() => state.value.received || []);
 const files = computed(() => state.value.files || []);
 const shared = computed(() => state.value.shared || []);
+const sharedAll = computed(() => state.value.sharedAll !== false);
+const remote = computed(() => state.value.remote || null);
+const remoteFiles = computed(() => state.value.remoteFiles || []);
 
 const apply = (patch) => {
 	state.value = { ...state.value, ...(patch || {}) };
+};
+
+/** Fichiers de la salle rejointe (l'app est alors simple participante). */
+const refreshRemote = async () => {
+	if (!state.value.remote) {
+		if (state.value.remoteFiles.length) state.value = { ...state.value, remoteFiles: [] };
+		return;
+	}
+	try {
+		const data = await fetchRemoteTransferFiles();
+		state.value = { ...state.value, remoteFiles: data?.files || [] };
+	} catch (error) {
+		lastError.value = error.message;
+	}
 };
 
 const refresh = async ({ silent = false } = {}) => {
@@ -42,6 +67,7 @@ const refresh = async ({ silent = false } = {}) => {
 	try {
 		apply(await fetchTransfer());
 		lastError.value = null;
+		await refreshRemote();
 	} catch (error) {
 		lastError.value = error.message;
 	} finally {
@@ -86,6 +112,30 @@ const setShared = async (ids) => {
 	apply(await updateTransferFiles(ids));
 };
 
+/** Réactive le partage automatique de tous les téléchargements terminés. */
+const shareAll = async () => {
+	apply(await shareAllTransferFiles());
+};
+
+/** Rejoint une salle existante (QR code ou adresse saisie). */
+const join = async (roomUrl) => {
+	const data = await joinTransferRoom(roomUrl);
+	apply({ remote: { url: data.url }, remoteFiles: data.files || [] });
+	await refresh({ silent: true });
+};
+
+const leave = async () => {
+	await leaveTransferRoom();
+	apply({ remote: null, remoteFiles: [] });
+};
+
+/** Envoie des téléchargements de l'appareil vers la salle rejointe. */
+const sendToRemote = async (ids) => {
+	const data = await shareTransferDownloads(ids);
+	apply({ remoteFiles: data?.files || [] });
+	return data;
+};
+
 const removeReceived = async (id) => {
 	await removeTransferFile(id);
 	state.value = { ...state.value, received: received.value.filter((file) => file.id !== id) };
@@ -105,10 +155,17 @@ export const useTransfer = () => ({
 	received,
 	files,
 	shared,
+	sharedAll,
+	remote,
+	remoteFiles,
 	refresh,
 	start,
 	stop,
 	setShared,
+	shareAll,
+	join,
+	leave,
+	sendToRemote,
 	removeReceived,
 	clearReceived,
 });

@@ -10,11 +10,12 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use axum::extract::{DefaultBodyLimit, Multipart, Path, Request};
+use axum::body::Body;
+use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, Request};
 use axum::http::header;
 use axum::response::{Html, Response};
 use axum::routing::{get, post};
@@ -42,6 +43,10 @@ struct RoomFile {
 	mime: String,
 	#[serde(default)]
 	uploader: String,
+	/// Identifiant de l'appareil expéditeur : permet de lui masquer ses propres
+	/// envois (il n'a pas besoin de re-télécharger ce qu'il vient de partager).
+	#[serde(default)]
+	uploader_id: String,
 	added_at: i64,
 	/// Nom du fichier sur le disque, dans le dossier de partage.
 	stored_name: String,
@@ -71,6 +76,22 @@ static RECEIVED: LazyLock<Mutex<Vec<RoomFile>>> = LazyLock::new(|| Mutex::new(lo
 static SHARED: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 /// Partage actif (un seul à la fois).
 static ACTIVE: LazyLock<Mutex<Option<Active>>> = LazyLock::new(|| Mutex::new(None));
+/// Vrai tant que la salle expose automatiquement tous les téléchargements terminés.
+static SHARE_ALL: AtomicBool = AtomicBool::new(true);
+/// Salle distante rejointe depuis l'app (l'appareil devient simple participant).
+static REMOTE: LazyLock<Mutex<Option<RemoteRoom>>> = LazyLock::new(|| Mutex::new(None));
+
+#[derive(Clone)]
+struct RemoteRoom {
+	base: String,
+	client_id: String,
+}
+
+/// Identifiant stable de cet appareil dans les salles rejointes.
+fn app_client_id() -> String {
+	static ID: LazyLock<String> = LazyLock::new(|| format!("app-{}", make_token()));
+	ID.clone()
+}
 
 fn transfer_dir() -> PathBuf {
 	config().downloads_dir.join("transfer")
@@ -208,15 +229,24 @@ fn shared_room_file(id: &str) -> Option<Value> {
 }
 
 /// Liste des fichiers visibles dans la salle (téléchargements partagés + reçus).
-pub fn visible_files() -> Vec<Value> {
+///
+/// `exclude_client` retire les fichiers envoyés par l'appareil demandeur : chacun
+/// voit ce qu'il peut récupérer, mais pas ce qu'il vient lui-même de partager.
+pub fn visible_files(exclude_client: Option<&str>) -> Vec<Value> {
 	let mut out = Vec::new();
-	let ids: Vec<String> = SHARED.lock().unwrap().clone();
-	for id in ids {
+	for id in shared_ids() {
 		if let Some(item) = shared_room_file(&id) {
 			out.push(item);
 		}
 	}
+
+	let exclude = exclude_client.map(str::trim).filter(|value| !value.is_empty());
 	for file in RECEIVED.lock().unwrap().iter() {
+		if let Some(client) = exclude {
+			if !file.uploader_id.is_empty() && file.uploader_id == client {
+				continue;
+			}
+		}
 		out.push(received_room_file(file));
 	}
 	out
@@ -247,7 +277,13 @@ pub fn status() -> Value {
 		.iter()
 		.map(received_room_file)
 		.collect();
-	let shared: Vec<String> = SHARED.lock().unwrap().clone();
+	let shared = shared_ids();
+	let shared_all = SHARE_ALL.load(Ordering::SeqCst);
+	let remote = REMOTE
+		.lock()
+		.unwrap()
+		.as_ref()
+		.map(|room| json!({ "url": room.base }));
 
 	match ACTIVE.lock().unwrap().as_ref() {
 		Some(active) => json!({
@@ -256,15 +292,19 @@ pub fn status() -> Value {
 			"port": active.port,
 			"url": active.url(),
 			"shared": shared,
+			"sharedAll": shared_all,
 			"received": received,
-			"files": visible_files(),
+			"remote": remote,
+			"files": visible_files(None),
 		}),
 		None => json!({
 			"running": false,
 			"port": Value::Null,
 			"url": Value::Null,
 			"shared": shared,
+			"sharedAll": shared_all,
 			"received": received,
+			"remote": remote,
 			"files": [],
 		}),
 	}
@@ -279,23 +319,35 @@ fn completed_download_ids() -> Vec<String> {
 		.collect()
 }
 
-fn selected_from(payload: &Value) -> Vec<String> {
-	payload
-		.get("files")
-		.and_then(|value| value.as_array())
-		.map(|items| {
+/// Téléchargements exposés : soit tous les fichiers terminés (mode automatique,
+/// la salle reste alimentée par la bibliothèque), soit une sélection explicite.
+fn shared_ids() -> Vec<String> {
+	if SHARE_ALL.load(Ordering::SeqCst) {
+		completed_download_ids()
+	} else {
+		SHARED.lock().unwrap().clone()
+	}
+}
+
+/// `(identifiants, mode automatique)` : sans liste fournie, on partage tout.
+fn selected_from(payload: &Value) -> (Vec<String>, bool) {
+	match payload.get("files").and_then(|value| value.as_array()) {
+		Some(items) => (
 			items
 				.iter()
 				.filter_map(|item| item.as_str().map(String::from))
-				.collect()
-		})
-		.unwrap_or_else(completed_download_ids)
+				.collect(),
+			false,
+		),
+		None => (completed_download_ids(), true),
+	}
 }
 
 /// Démarre (ou redémarre) la salle de partage.
 pub async fn start(payload: &Value) -> Result<Value> {
-	let selected = selected_from(payload);
+	let (selected, all) = selected_from(payload);
 	stop_active();
+	SHARE_ALL.store(all, Ordering::SeqCst);
 	*SHARED.lock().unwrap() = selected.clone();
 
 	let want_port = config().transfer_port;
@@ -338,6 +390,7 @@ pub async fn start(payload: &Value) -> Result<Value> {
 		"url": url,
 		"port": port,
 		"shared": selected,
+		"sharedAll": all,
 		"received": RECEIVED.lock().unwrap().iter().map(received_room_file).collect::<Vec<_>>(),
 	}))
 }
@@ -357,7 +410,15 @@ pub fn stop() -> Value {
 }
 
 /// Change la liste des téléchargements exposés (sans redémarrer le serveur).
+///
+/// `{ "all": true }` réactive le partage automatique de toute la bibliothèque.
 pub fn set_shared(payload: &Value) -> Result<Value> {
+	if payload.get("all").and_then(|value| value.as_bool()) == Some(true) {
+		SHARE_ALL.store(true, Ordering::SeqCst);
+		*SHARED.lock().unwrap() = completed_download_ids();
+		return Ok(status());
+	}
+
 	let files: Vec<String> = payload
 		.get("files")
 		.and_then(|value| value.as_array())
@@ -365,6 +426,7 @@ pub fn set_shared(payload: &Value) -> Result<Value> {
 		.iter()
 		.filter_map(|item| item.as_str().map(String::from))
 		.collect();
+	SHARE_ALL.store(false, Ordering::SeqCst);
 	*SHARED.lock().unwrap() = files;
 	Ok(status())
 }
@@ -395,6 +457,200 @@ pub fn clear_received() -> Value {
 	json!({ "removed": files.len() })
 }
 
+/// Normalise l'adresse d'une salle (`http://ip:port/jeton/`).
+fn normalize_room_url(raw: &str) -> Result<String> {
+	let text = raw.trim();
+	if text.is_empty() {
+		return Err(ApiError::bad_request("Adresse de salle vide"));
+	}
+
+	// Le QR code peut contenir l'URL complète ou seulement `ip:port/jeton`.
+	let candidate = if text.starts_with("http://") || text.starts_with("https://") {
+		text.to_string()
+	} else {
+		format!("http://{text}")
+	};
+
+	let mut url = reqwest::Url::parse(&candidate)
+		.map_err(|_| ApiError::bad_request("Adresse de salle invalide"))?;
+	if url.scheme() != "http" && url.scheme() != "https" {
+		return Err(ApiError::bad_request("Seules les adresses http(s) sont acceptées"));
+	}
+	if url.path().trim_matches('/').is_empty() {
+		return Err(ApiError::bad_request("Ce QR code ne contient pas de salle"));
+	}
+
+	url.set_query(None);
+	url.set_fragment(None);
+	if !url.path().ends_with('/') {
+		let path = format!("{}/", url.path());
+		url.set_path(&path);
+	}
+	Ok(url.to_string())
+}
+
+/// Récupère la liste des fichiers d'une salle distante (hors envois de cet appareil).
+async fn fetch_remote_files(base: &str, client_id: &str) -> Result<Vec<Value>> {
+	let response = crate::http::client()
+		.get(format!("{base}files"))
+		.query(&[("client", client_id)])
+		.timeout(Duration::from_secs(8))
+		.send()
+		.await
+		.map_err(|_| {
+			ApiError::upstream(502, "Salle injoignable : vérifie le Wi-Fi et l'adresse")
+		})?;
+
+	if !response.status().is_success() {
+		return Err(ApiError::upstream(
+			502,
+			format!("La salle a répondu {}", response.status().as_u16()),
+		));
+	}
+
+	let payload: Value = response
+		.json()
+		.await
+		.map_err(|_| ApiError::upstream(502, "Réponse de la salle illisible"))?;
+	Ok(payload
+		.get("files")
+		.and_then(|value| value.as_array())
+		.cloned()
+		.unwrap_or_default())
+}
+
+fn remote_room() -> Result<RemoteRoom> {
+	REMOTE
+		.lock()
+		.unwrap()
+		.clone()
+		.ok_or_else(|| ApiError::bad_request("Aucune salle rejointe"))
+}
+
+/// Rejoint une salle existante (QR code ou adresse saisie).
+pub async fn join(payload: &Value) -> Result<Value> {
+	let raw = payload
+		.get("url")
+		.and_then(|value| value.as_str())
+		.ok_or_else(|| ApiError::bad_request("Adresse de salle requise"))?;
+	let base = normalize_room_url(raw)?;
+	let client_id = app_client_id();
+	let files = fetch_remote_files(&base, &client_id).await?;
+
+	*REMOTE.lock().unwrap() = Some(RemoteRoom {
+		base: base.clone(),
+		client_id,
+	});
+
+	Ok(json!({ "url": base, "files": files }))
+}
+
+/// Quitte la salle rejointe.
+pub fn leave() -> Value {
+	*REMOTE.lock().unwrap() = None;
+	json!({ "left": true })
+}
+
+/// Liste à jour des fichiers de la salle rejointe.
+pub async fn remote_files() -> Result<Value> {
+	let Some(room) = REMOTE.lock().unwrap().clone() else {
+		return Ok(json!({ "files": [] }));
+	};
+	let files = fetch_remote_files(&room.base, &room.client_id).await?;
+	Ok(json!({ "files": files }))
+}
+
+/// Télécharge un fichier de la salle rejointe en relayant les octets (Range inclus).
+pub async fn remote_download(id: &str, range: Option<String>) -> Result<Response> {
+	let room = remote_room()?;
+	let url = format!("{}file/{}", room.base, crate::services::providers::urlencode(id));
+
+	let mut request = crate::http::client().get(url);
+	if let Some(value) = range {
+		request = request.header("range", value);
+	}
+	let response = request
+		.send()
+		.await
+		.map_err(|_| ApiError::upstream(502, "Téléchargement depuis la salle impossible"))?;
+
+	let status = response.status();
+	if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
+		return Err(ApiError::upstream(
+			502,
+			format!("La salle a refusé le fichier ({})", status.as_u16()),
+		));
+	}
+
+	let mut builder = Response::builder().status(status.as_u16());
+	for name in [
+		header::CONTENT_TYPE,
+		header::CONTENT_LENGTH,
+		header::CONTENT_RANGE,
+		header::CONTENT_DISPOSITION,
+		header::ACCEPT_RANGES,
+	] {
+		if let Some(value) = response.headers().get(&name) {
+			builder = builder.header(name, value);
+		}
+	}
+
+	use futures::TryStreamExt;
+	let stream = response.bytes_stream().map_err(std::io::Error::other);
+	builder
+		.body(Body::from_stream(stream))
+		.map_err(|_| ApiError::new(500, "Réponse de téléchargement invalide"))
+}
+
+/// Envoie des téléchargements terminés de l'appareil vers la salle rejointe.
+pub async fn remote_share(payload: &Value) -> Result<Value> {
+	let room = remote_room()?;
+	let ids: Vec<String> = payload
+		.get("files")
+		.and_then(|value| value.as_array())
+		.ok_or_else(|| ApiError::bad_request("Liste de fichiers requise"))?
+		.iter()
+		.filter_map(|item| item.as_str().map(String::from))
+		.collect();
+
+	let mut sent: Vec<String> = Vec::new();
+	for id in ids {
+		let entry = manager().entry(&id)?;
+		if entry.status != "completed" {
+			continue;
+		}
+
+		let file = tokio::fs::File::open(file_path_of(&entry))
+			.await
+			.map_err(|error| ApiError::new(500, format!("Lecture impossible : {error}")))?;
+		let part = reqwest::multipart::Part::stream(reqwest::Body::wrap_stream(
+			tokio_util::io::ReaderStream::new(file),
+		))
+		.file_name(entry.file_name.clone());
+		let form = reqwest::multipart::Form::new()
+			.text("uploader", "Movie Box")
+			.text("client", room.client_id.clone())
+			.part("file", part);
+
+		let response = crate::http::client()
+			.post(format!("{}upload", room.base))
+			.multipart(form)
+			.send()
+			.await
+			.map_err(|_| ApiError::upstream(502, "Envoi vers la salle impossible"))?;
+		if !response.status().is_success() {
+			return Err(ApiError::upstream(
+				502,
+				format!("La salle a refusé l'envoi ({})", response.status().as_u16()),
+			));
+		}
+		sent.push(entry.file_name);
+	}
+
+	let files = fetch_remote_files(&room.base, &room.client_id).await?;
+	Ok(json!({ "sent": sent, "files": files }))
+}
+
 /// Routeur public exposé sur le réseau local (protégé par le jeton dans le chemin).
 ///
 /// Le jeton est inscrit en dur dans les routes : une URL au jeton erroné ne
@@ -415,8 +671,14 @@ async fn page() -> Html<&'static str> {
 	Html(PAGE_HTML)
 }
 
-async fn files() -> Json<Value> {
-	Json(json!({ "files": visible_files() }))
+#[derive(Deserialize, Default)]
+struct FilesQuery {
+	#[serde(default)]
+	client: Option<String>,
+}
+
+async fn files(Query(query): Query<FilesQuery>) -> Json<Value> {
+	Json(json!({ "files": visible_files(query.client.as_deref()) }))
 }
 
 async fn download(Path((_token, id)): Path<(String, String)>, request: Request) -> Result<Response> {
@@ -436,6 +698,7 @@ async fn upload(mut multipart: Multipart) -> Result<Json<Value>> {
 
 	let mut added: Vec<Value> = Vec::new();
 	let mut uploader = String::new();
+	let mut uploader_id = String::new();
 
 	while let Some(mut field) = multipart
 		.next_field()
@@ -447,6 +710,10 @@ async fn upload(mut multipart: Multipart) -> Result<Json<Value>> {
 			if field_name == "uploader" {
 				if let Ok(text) = field.text().await {
 					uploader = text.trim().chars().take(40).collect();
+				}
+			} else if field_name == "client" {
+				if let Ok(text) = field.text().await {
+					uploader_id = text.trim().chars().take(64).collect();
 				}
 			}
 			continue;
@@ -479,6 +746,7 @@ async fn upload(mut multipart: Multipart) -> Result<Json<Value>> {
 			size,
 			mime: mime_for_name(&name),
 			uploader: uploader.clone(),
+			uploader_id: uploader_id.clone(),
 			added_at: now_ms(),
 			stored_name,
 		};
@@ -579,6 +847,13 @@ a.dl:hover,button.go:hover{background:#8d70ff}
   who.value = localStorage.getItem('moviebox-name') || '';
   who.addEventListener('change', function(){ localStorage.setItem('moviebox-name', who.value.trim()); });
 
+  // Identifiant de cet appareil : la salle masque les fichiers qu'il a envoyes.
+  var clientId = localStorage.getItem('moviebox-client');
+  if(!clientId){
+    clientId = 'web-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    localStorage.setItem('moviebox-client', clientId);
+  }
+
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function fmt(b){ b=Number(b)||0; if(b<=0) return '0 o'; var u=['o','Ko','Mo','Go','To']; var i=Math.min(u.length-1,Math.floor(Math.log(b)/Math.log(1024))); return (b/Math.pow(1024,i)).toFixed(i?1:0).replace('.',',')+' '+u[i]; }
   function icon(m){ if(/^video\//.test(m)) return '&#9654;'; if(/^image\//.test(m)) return '&#9635;'; if(/^audio\//.test(m)) return '&#9835;'; if(/zip|rar|7z|tar/.test(m)) return '&#128230;'; return '&#128196;'; }
@@ -596,7 +871,7 @@ a.dl:hover,button.go:hover{background:#8d70ff}
   }
 
   function load(){
-    fetch(base+'files', {cache:'no-store'})
+    fetch(base+'files?client='+encodeURIComponent(clientId), {cache:'no-store'})
       .then(function(r){ return r.json(); })
       .then(function(d){ render(d.files||[]); })
       .catch(function(){ list.innerHTML = '<li class="empty">Connexion au partage perdue.</li>'; });
@@ -607,6 +882,7 @@ a.dl:hover,button.go:hover{background:#8d70ff}
     var fd = new FormData();
     var name = who.value.trim();
     if(name) fd.append('uploader', name);
+    fd.append('client', clientId);
     for(var i=0;i<files.length;i++) fd.append('file', files[i], files[i].name);
     var xhr = new XMLHttpRequest();
     xhr.open('POST', base+'upload');

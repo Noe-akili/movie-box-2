@@ -58,6 +58,25 @@ if (!/android:usesCleartextTraffic=/.test(patched)) {
 	changes.push('manifest: usesCleartextTraffic="true"');
 }
 
+// --- 1b. Caméra : scanner le QR code d'une salle de partage ------------------
+// `getUserMedia` passe par `onPermissionRequest` de la WebView, qui demande
+// ensuite la permission Android au runtime. Encore faut-il qu'elle soit
+// déclarée dans le manifeste, sinon la demande est refusée d'office.
+if (!patched.includes("android.permission.CAMERA")) {
+	const next = patched.replace(
+		/<application\b/,
+		(tag) =>
+			`    <uses-permission android:name="android.permission.CAMERA" />\n` +
+			`    <uses-feature android:name="android.hardware.camera" android:required="false" />\n\n${tag}`,
+	);
+	if (next === patched) {
+		console.error("Balise <application> introuvable : permission caméra impossible.");
+		process.exit(1);
+	}
+	patched = next;
+	changes.push("manifest: permission CAMERA");
+}
+
 if (changes.length === 0) {
 	console.log("Manifest deja patche.");
 } else {

@@ -79,6 +79,11 @@ jobs:
           printf '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n  <color name="ic_launcher_background">#05190A</color>\n</resources>\n' \
             > src-tauri/icons/android/values/ic_launcher_background.xml
 
+      # `tauri icon` remplit tout le canevas (108 dp) : le masque adaptatif
+      # rogne le logo et le rend « zoomé ». On recentre le contenu dans la zone sûre.
+      - name: Frame the adaptive icon foreground
+        run: node scripts/pad-android-foreground.mjs
+
       - name: Initialize Android project
         run: npx tauri android init --ci
 

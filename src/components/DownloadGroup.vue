@@ -47,9 +47,21 @@ const seasonLabel = computed(() => {
 const totalBytes = computed(() =>
 	props.group.entries.reduce((sum, entry) => sum + (entry.bytesTotal || entry.bytesReceived || 0), 0),
 );
-const progress = computed(() =>
-	total.value ? Math.round((done.value.length / total.value) * 100) : 0,
-);
+// Progression en octets : une barre qui n'avance qu'au nombre d'épisodes terminés
+// restait immobile pendant un téléchargement multiple (tous les épisodes en cours).
+const progress = computed(() => {
+	const entries = props.group.entries;
+	let totalBytes = 0;
+	let receivedBytes = 0;
+	for (const entry of entries) {
+		const size = entry.bytesTotal || entry.bytesReceived || 0;
+		totalBytes += size;
+		receivedBytes +=
+			entry.status === "completed" ? size : Math.min(entry.bytesReceived || 0, size);
+	}
+	if (totalBytes > 0) return Math.min(100, Math.round((receivedBytes / totalBytes) * 100));
+	return total.value ? Math.round((done.value.length / total.value) * 100) : 0;
+});
 const statusLabel = computed(() => {
 	if (active.value.length) return `${done.value.length}/${total.value} · ${active.value.length} en cours`;
 	if (failed.value.length) return `${done.value.length}/${total.value} · ${failed.value.length} en échec`;
@@ -285,6 +297,15 @@ const onRemoveMany = (close) => {
 									<span v-if="entry.status === 'downloading'"> · {{ entry.progress }} %</span>
 									<span v-if="entry.status === 'error'" class="text-amber-300/90"> · interrompu</span>
 								</p>
+								<div
+									v-if="isActive(entry)"
+									class="mt-1 h-1 overflow-hidden rounded-full bg-white/10"
+								>
+									<div
+										class="h-full bg-brand-gradient transition-normal"
+										:style="{ width: `${entry.progress}%` }"
+									></div>
+								</div>
 							</div>
 
 							<!-- Chaque fichier a son propre menu « … ». -->

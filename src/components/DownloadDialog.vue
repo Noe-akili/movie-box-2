@@ -27,7 +27,7 @@ const props = defineProps({
 
 const emit = defineEmits(["close"]);
 
-const { start } = useDownloads();
+const { start, items } = useDownloads();
 
 const isInternal = computed(() => isInternalSource(props.item));
 const internalId = computed(
@@ -166,9 +166,63 @@ const loadEpisodeSizes = async (season) => {
 		isLoadingSizes.value = false;
 	}
 };
-const allSelected = computed(
-	() => availableEpisodes.value.length > 0 && selectedCount.value === availableEpisodes.value.length,
+/**
+ * Téléchargement déjà présent pour un épisode (même série, saison et numéro).
+ * On s'appuie sur les métadonnées enregistrées plutôt que sur le nom de fichier :
+ * les flux internes ne sont résolus qu'au moment du téléchargement.
+ */
+const downloadForEpisode = (episode) => {
+	const season = episode.season ?? 1;
+	const number = episode.number ?? 1;
+	const series = itemTitle.value;
+	return (
+		items.value.find(
+			(entry) =>
+				entry.kind === "episode" &&
+				entry.seasonNumber === season &&
+				entry.episodeNumber === number &&
+				(entry.seriesTitle || "") === series,
+		) || null
+	);
+};
+
+/** `downloaded` (possédé), `active` (en cours) ou `paused` (erreur/annulé). */
+const episodeState = (episode) => {
+	const entry = downloadForEpisode(episode);
+	if (!entry) return null;
+	if (entry.status === "completed") return "downloaded";
+	if (entry.status === "queued" || entry.status === "downloading") return "active";
+	return "paused";
+};
+
+const downloadedCount = computed(
+	() => seasonEpisodes.value.filter((entry) => episodeState(entry.episode) === "downloaded").length,
 );
+
+// Les épisodes déjà possédés ne sont pas proposés à la sélection (pas de doublon).
+const selectableEpisodes = computed(() =>
+	availableEpisodes.value.filter((entry) => episodeState(entry.episode) !== "downloaded"),
+);
+
+const allSelected = computed(
+	() =>
+		selectableEpisodes.value.length > 0 &&
+		selectedCount.value === selectableEpisodes.value.length,
+);
+
+/** Film déjà téléchargé (titre + qualité), affiché sous le choix de qualité. */
+const downloadedMovie = computed(() => {
+	if (effectiveSeries.value) return null;
+	return (
+		items.value.find(
+			(entry) =>
+				entry.kind === "movie" &&
+				entry.status === "completed" &&
+				(entry.title || "") === itemTitle.value &&
+				(!selectedQuality.value || entry.quality === selectedQuality.value),
+		) || null
+	);
+});
 
 /**
  * Qualites reellement proposees. L'API MovieBox ne fournit pas les memes qualites
@@ -235,7 +289,7 @@ const selectQuality = (quality) => {
 };
 
 const toggleEpisode = (entry) => {
-	if (!entry.available) return;
+	if (!entry.available || episodeState(entry.episode) === "downloaded") return;
 	const key = keyOf(entry.episode);
 	selectedKeys.value = selectedKeys.value.includes(key)
 		? selectedKeys.value.filter((item) => item !== key)
@@ -243,7 +297,9 @@ const toggleEpisode = (entry) => {
 };
 
 const toggleAll = () => {
-	selectedKeys.value = allSelected.value ? [] : availableEpisodes.value.map((entry) => keyOf(entry.episode));
+	selectedKeys.value = allSelected.value
+		? []
+		: selectableEpisodes.value.map((entry) => keyOf(entry.episode));
 };
 
 const goToEpisodes = () => {
@@ -432,7 +488,9 @@ onMounted(async () => {
 
 	if (effectiveSeries.value) {
 		selectedSeason.value = props.episode?.season ?? seasons.value[0] ?? 1;
-		if (props.episode) selectedKeys.value = [keyOf(props.episode)];
+		if (props.episode && episodeState(props.episode) !== "downloaded") {
+			selectedKeys.value = [keyOf(props.episode)];
+		}
 	}
 
 	await loadQualities(selectedSeason.value);
@@ -541,6 +599,14 @@ onBeforeUnmount(() => {
 							</button>
 						</div>
 
+						<p
+							v-if="downloadedMovie"
+							class="mt-3 flex items-center gap-1.5 text-xs font-semibold text-emerald-300/90"
+						>
+							<AppIcon name="check" :size="14" />
+							<span>Déjà téléchargé{{ downloadedMovie.quality ? ` (${downloadedMovie.quality})` : "" }}</span>
+						</p>
+
 						<template v-if="effectiveSeries">
 							<p class="mb-2 mt-4 text-[11px] font-semibold uppercase tracking-wider text-white/35">Saison</p>
 							<div class="rail -mx-1 px-1">
@@ -563,6 +629,9 @@ onBeforeUnmount(() => {
 						<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
 							<p class="text-xs text-white/45">
 								Saison {{ selectedSeason }} · {{ selectedQuality }} · {{ selectedCount }} sélectionné(s)
+								<span v-if="downloadedCount" class="text-emerald-300/80">
+									· {{ downloadedCount }} déjà téléchargé{{ downloadedCount > 1 ? "s" : "" }}
+								</span>
 							</p>
 							<p
 								v-if="selectedCount"
@@ -572,7 +641,12 @@ onBeforeUnmount(() => {
 								<span v-else-if="isLoadingSizes" class="text-white/40">Calcul de la taille…</span>
 								<span v-else class="text-white/40">Taille inconnue</span>
 							</p>
-							<button type="button" class="chip !py-1 text-xs" @click="toggleAll">
+							<button
+								type="button"
+								class="chip !py-1 text-xs disabled:opacity-40"
+								:disabled="!selectableEpisodes.length"
+								@click="toggleAll"
+							>
 								{{ allSelected ? "Tout désélectionner" : "Tout sélectionner" }}
 							</button>
 						</div>
@@ -591,7 +665,7 @@ onBeforeUnmount(() => {
 											? 'border-brand/50 bg-brand/10'
 											: 'border-inkLine bg-ink hover:border-white/25'
 									"
-									:disabled="!entry.available"
+									:disabled="!entry.available || episodeState(entry.episode) === 'downloaded'"
 									@click="toggleEpisode(entry)"
 								>
 									<span
@@ -621,12 +695,27 @@ onBeforeUnmount(() => {
 										Indispo.
 									</span>
 									<span
-										v-else-if="entry.stream?.size || sizeOf(entry.episode) !== null"
+										v-if="episodeState(entry.episode) === 'downloaded'"
+										class="shrink-0 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300"
+									>
+										Possédé
+									</span>
+									<span
+										v-else-if="episodeState(entry.episode) === 'active'"
+										class="shrink-0 rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-semibold text-brandSoft"
+									>
+										En cours
+									</span>
+									<span
+										v-if="entry.available && (entry.stream?.size || sizeOf(entry.episode) !== null)"
 										class="shrink-0 text-[10px] text-white/35"
 									>
 										{{ formatSize(entry.stream?.size ?? sizeOf(entry.episode)) }}
 									</span>
-									<span v-else-if="isLoadingSizes" class="skeleton h-3 w-12 shrink-0"></span>
+									<span
+										v-else-if="entry.available && isLoadingSizes"
+										class="skeleton h-3 w-12 shrink-0"
+									></span>
 								</button>
 							</li>
 						</ul>

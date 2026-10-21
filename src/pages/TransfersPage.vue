@@ -1,7 +1,9 @@
 <script setup>
-import { computed, onMounted, onUnmounted } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { remoteTransferFileUrl } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import QrCode from "../components/QrCode.vue";
+import QrScanner from "../components/QrScanner.vue";
 import { useDownloads } from "../stores/downloads";
 import { startTransferPolling, stopTransferPolling, useTransfer } from "../stores/transfer";
 import { toast } from "../stores/toast";
@@ -17,11 +19,18 @@ const {
 	files,
 	received,
 	shared,
+	sharedAll,
+	remote,
+	remoteFiles,
 	lastError,
 	isLoading,
 	start,
 	stop,
 	setShared,
+	shareAll,
+	join,
+	leave,
+	sendToRemote,
 	removeReceived,
 	clearReceived,
 } = useTransfer();
@@ -29,6 +38,11 @@ const { completedItems, refresh } = useDownloads();
 
 const shareable = computed(() => completedItems.value);
 const sharedSet = computed(() => new Set(shared.value));
+
+const scannerOpen = ref(false);
+const joinUrl = ref("");
+const joining = ref(false);
+const sendingId = ref(null);
 
 const onStart = async () => {
 	try {
@@ -93,6 +107,61 @@ const onClearReceived = async () => {
 		toast.info("Fichiers reçus supprimés");
 	} catch (error) {
 		toast.error(error.message);
+	}
+};
+
+const onShareAll = async () => {
+	try {
+		await shareAll();
+		toast.info("Toute la bibliothèque est partagée automatiquement");
+	} catch (error) {
+		toast.error(error.message);
+	}
+};
+
+const onJoin = async (value = joinUrl.value) => {
+	const address = String(value || "").trim();
+	if (!address) {
+		toast.info("Scanne le QR code ou colle l'adresse de la salle");
+		return;
+	}
+
+	joining.value = true;
+	try {
+		await join(address);
+		joinUrl.value = "";
+		toast.success("Salle rejointe");
+	} catch (error) {
+		toast.error(error.message);
+	} finally {
+		joining.value = false;
+	}
+};
+
+const onDetected = (value) => {
+	scannerOpen.value = false;
+	joinUrl.value = String(value || "");
+	onJoin(joinUrl.value);
+};
+
+const onLeave = async () => {
+	try {
+		await leave();
+		toast.info("Salle quittée");
+	} catch (error) {
+		toast.error(error.message);
+	}
+};
+
+const onSendToRemote = async (id) => {
+	sendingId.value = id;
+	try {
+		await sendToRemote([id]);
+		toast.success("Fichier envoyé à la salle");
+	} catch (error) {
+		toast.error(error.message);
+	} finally {
+		sendingId.value = null;
 	}
 };
 
@@ -189,10 +258,141 @@ onUnmounted(() => stopTransferPolling());
 				</div>
 			</div>
 
-			<div v-if="running" class="surface p-5">
-				<h2 class="mb-3 text-sm font-semibold text-white/80">
-					Mes téléchargements partagés ({{ shared.length }})
-				</h2>
+			<!-- Rejoindre la salle d'un autre appareil : scan du QR ou adresse. -->
+			<div class="surface p-5">
+				<div class="mb-3 flex items-center gap-2">
+					<span class="grid h-9 w-9 place-items-center rounded-xl bg-brand/15 text-brandSoft">
+						<AppIcon name="scan" :size="18" />
+					</span>
+					<div>
+						<h2 class="text-sm font-semibold text-white/80">Rejoindre une salle</h2>
+						<p class="text-xs text-white/40">Scanne le QR code affiché sur l'autre appareil.</p>
+					</div>
+				</div>
+
+				<div v-if="remote" class="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-3">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<div class="min-w-0">
+							<p class="text-xs font-semibold text-emerald-300">Salle rejointe</p>
+							<p class="break-all font-mono text-[11px] text-white/50">{{ remote.url }}</p>
+						</div>
+						<button type="button" class="chip" @click="onLeave">
+							<AppIcon name="close" :size="13" />
+							Quitter
+						</button>
+					</div>
+
+					<div class="mt-3 border-t border-white/5 pt-3">
+						<p class="mb-2 text-xs font-semibold text-white/70">
+							Fichiers de la salle ({{ remoteFiles.length }})
+						</p>
+						<p v-if="!remoteFiles.length" class="text-xs text-white/40">
+							Aucun fichier pour l'instant.
+						</p>
+						<ul v-else class="max-h-64 space-y-2 overflow-y-auto pr-1">
+							<li
+								v-for="file in remoteFiles"
+								:key="file.id"
+								class="flex items-center gap-3 rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-2"
+							>
+								<AppIcon :name="iconFor(file)" :size="15" class="text-white/40" />
+								<div class="min-w-0 flex-1">
+									<p class="truncate text-xs font-semibold text-white/80">{{ file.name }}</p>
+									<p class="text-[11px] text-white/40">
+										{{ formatSize(file.size) }}
+										<span v-if="file.uploader"> · {{ file.uploader }}</span>
+									</p>
+								</div>
+								<a
+									class="btn btn-inverse shrink-0 px-3 py-1.5 text-[11px]"
+									:href="remoteTransferFileUrl(file.id)"
+									:download="file.name"
+								>
+									<AppIcon name="download" :size="13" />
+									<span>Télécharger</span>
+								</a>
+							</li>
+						</ul>
+					</div>
+
+					<div v-if="shareable.length" class="mt-3 border-t border-white/5 pt-3">
+						<p class="mb-2 text-xs font-semibold text-white/70">Envoyer un de mes téléchargements</p>
+						<ul class="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+							<li
+								v-for="item in shareable"
+								:key="`remote-${item.id}`"
+								class="flex items-center gap-2 rounded-lg border border-white/5 px-2.5 py-1.5"
+							>
+								<span class="min-w-0 flex-1 truncate text-[11px] text-white/70">
+									{{ item.title || item.fileName }}
+								</span>
+								<button
+									type="button"
+									class="chip !py-1 text-[11px]"
+									:disabled="sendingId === item.id"
+									@click="onSendToRemote(item.id)"
+								>
+									<AppIcon name="upload" :size="12" />
+									{{ sendingId === item.id ? "Envoi…" : "Envoyer" }}
+								</button>
+							</li>
+						</ul>
+					</div>
+				</div>
+
+				<div v-else class="space-y-3">
+					<button type="button" class="btn btn-solid w-full" @click="scannerOpen = true">
+						<AppIcon name="camera" :size="16" />
+						<span>Scanner un QR code</span>
+					</button>
+					<div class="flex gap-2">
+						<input
+							v-model="joinUrl"
+							type="text"
+							inputmode="url"
+							autocomplete="off"
+							placeholder="http://192.168.1.20:8090/jeton/"
+							class="min-w-0 flex-1 rounded-xl border border-inkLine bg-inkRaised px-3 py-2.5 font-mono text-xs text-white/80 outline-none focus:border-brand/60"
+							@keyup.enter="onJoin()"
+						/>
+						<button
+							type="button"
+							class="btn btn-inverse shrink-0 px-4 py-2.5 text-xs"
+							:disabled="joining"
+							@click="onJoin()"
+						>
+							<AppIcon name="link" :size="14" />
+							<span>{{ joining ? "Connexion…" : "Rejoindre" }}</span>
+						</button>
+					</div>
+					<p class="text-xs text-white/40">
+						L'adresse est affichée sur l'appareil qui héberge la salle.
+					</p>
+				</div>
+			</div>
+
+			<div class="surface p-5">
+				<div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+					<h2 class="text-sm font-semibold text-white/80">
+						Ma bibliothèque partagée ({{ shared.length }})
+					</h2>
+					<button
+						v-if="shareable.length && !sharedAll"
+						type="button"
+						class="chip"
+						@click="onShareAll"
+					>
+						<AppIcon name="share" :size="13" />
+						Tout partager
+					</button>
+				</div>
+				<p class="mb-3 text-xs text-white/40">
+					{{
+						sharedAll
+							? "Tous tes téléchargements terminés sont exposés automatiquement dans la salle."
+							: "Seuls les téléchargements cochés sont exposés dans la salle."
+					}}
+				</p>
 				<p v-if="!shareable.length" class="text-sm text-white/45">
 					Aucun téléchargement terminé à partager pour l'instant.
 				</p>
@@ -294,5 +494,7 @@ onUnmounted(() => stopTransferPolling());
 				Le partage s'arrête quand tu appuies sur « Arrêter » ou quand l'application est fermée.
 			</p>
 		</section>
+
+		<QrScanner v-if="scannerOpen" @detected="onDetected" @close="scannerOpen = false" />
 	</div>
 </template>

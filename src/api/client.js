@@ -257,7 +257,14 @@ export const fetchTransfer = () => http.get("/transfer");
 export const startTransfer = (payload = {}) => http.post("/transfer/start", payload);
 export const stopTransfer = () => http.post("/transfer/stop");
 export const updateTransferFiles = (files) => http.put("/transfer/files", { files });
+export const shareAllTransferFiles = () => http.put("/transfer/files", { all: true });
 export const removeTransferFile = (id) => http.delete(`/transfer/received/${encodeURIComponent(id)}`);
 export const clearTransferFiles = () => http.delete("/transfer/received");
+export const joinTransferRoom = (url) => http.post("/transfer/join", { url });
+export const leaveTransferRoom = () => http.post("/transfer/leave");
+export const fetchRemoteTransferFiles = () => http.get("/transfer/remote");
+export const shareTransferDownloads = (files) => http.post("/transfer/remote/share", { files });
+export const remoteTransferFileUrl = (id) =>
+	mediaUrl(`/api/transfer/remote/file/${encodeURIComponent(id)}`);
 
 export default http;
