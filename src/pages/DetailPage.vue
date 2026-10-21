@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { fetchSeason, fetchTitle } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import DownloadButton from "../components/DownloadButton.vue";
@@ -19,6 +20,15 @@ const props = defineProps({
 
 const { isFavorite, toggleFavorite, addToHistory } = useLibrary();
 const settings = useSettings();
+const route = useRoute();
+const router = useRouter();
+
+// Raccourci depuis le dossier d'une série (« Épisodes manquants ») : on ouvre
+// l'assistant et on pré-sélectionne les épisodes non possédés.
+const autoMissing = ref(route.query.download === "missing");
+const automaticSeason = ref(
+	Number.isFinite(Number(route.query.season)) ? Number(route.query.season) : null,
+);
 
 const title = ref(null);
 const isLoading = ref(true);
@@ -145,7 +155,15 @@ const onShare = async () => {
 	}
 };
 
-onMounted(load);
+onMounted(() => {
+	load();
+	if (autoMissing.value) {
+		const query = { ...route.query };
+		delete query.download;
+		delete query.season;
+		router.replace({ query });
+	}
+});
 watch(() => [props.mediaType, props.id], load);
 watch(
 	() => settings.value.language,
@@ -238,6 +256,9 @@ watch(
 									:item="title"
 									:stream="title.streams?.[0] || null"
 									label="Télécharger"
+									:auto-open="autoMissing"
+									:auto-missing="autoMissing"
+									:initial-season="automaticSeason"
 								/>
 
 								<button type="button" class="btn btn-inverse px-4 py-3" @click="onToggleFavorite">

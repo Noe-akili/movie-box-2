@@ -1,19 +1,24 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { receivedTransferDownloadUrl } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import DownloadGroup from "../components/DownloadGroup.vue";
 import DownloadRow from "../components/DownloadRow.vue";
 import EmptyState from "../components/EmptyState.vue";
 import { useDownloads } from "../stores/downloads";
+import { useTransfer } from "../stores/transfer";
+import { startTransferPolling, stopTransferPolling } from "../stores/transfer";
 import { toast } from "../stores/toast";
-import { formatSize } from "../util/format";
+import { formatDate, formatSize } from "../util/format";
 
 /** Onglet « Téléchargements » : progression des transferts et lecture des fichiers stockes. */
 const { summary, isLoading, lastError, pendingItems, completedItems, refresh, remove } = useDownloads();
+const { received, removeReceived, clearReceived } = useTransfer();
 
 const TABS = [
 	{ value: "pending", label: "En cours" },
 	{ value: "completed", label: "Téléchargés" },
+	{ value: "received", label: "Reçus" },
 ];
 
 const activeTab = ref("pending");
@@ -64,9 +69,41 @@ const onRemoveMany = async (ids) => {
 		toast.error(error.message);
 	}
 };
-const usedBytes = computed(() => (summary.value.completedBytes || 0) + (summary.value.activeBytes || 0));
+const receivedBytes = computed(() =>
+	received.value.reduce((sum, file) => sum + (Number(file.size) || 0), 0),
+);
+const usedBytes = computed(
+	() => (summary.value.completedBytes || 0) + (summary.value.activeBytes || 0) + receivedBytes.value,
+);
 const usedLabel = computed(() => formatSize(usedBytes.value));
-const badgeFor = (tab) => (tab === "pending" ? pendingItems.value.length : completedItems.value.length);
+const badgeFor = (tab) => {
+	if (tab === "received") return received.value.length;
+	return tab === "pending" ? pendingItems.value.length : completedItems.value.length;
+};
+
+const iconFor = (file) => {
+	const mime = String(file.mime || "");
+	if (mime.startsWith("video/") || mime.startsWith("audio/")) return "film";
+	if (mime.startsWith("image/")) return "image";
+	return "archive";
+};
+
+const labelFor = (file) => {
+	const mime = String(file.mime || "");
+	if (mime.startsWith("video/")) return "Vidéo";
+	if (mime.startsWith("audio/")) return "Audio";
+	if (mime.startsWith("image/")) return "Image";
+	if (mime === "application/pdf") return "PDF";
+	return "Fichier";
+};
+
+const toneFor = (file) => {
+	const mime = String(file.mime || "");
+	if (mime.startsWith("video/")) return "bg-brand/15 text-brandSoft";
+	if (mime.startsWith("audio/")) return "bg-violet-500/15 text-violet-300";
+	if (mime.startsWith("image/")) return "bg-sky-500/15 text-sky-300";
+	return "bg-white/5 text-white/50";
+};
 
 const onClearCompleted = async () => {
 	if (!confirming.value) {
@@ -87,7 +124,42 @@ const onClearCompleted = async () => {
 	}
 };
 
-onMounted(() => refresh());
+/** Supprime un fichier reçu (disque + entrée de la salle). */
+const onRemoveReceived = async (id) => {
+	try {
+		await removeReceived(id);
+		toast.info("Fichier reçu supprimé");
+	} catch (error) {
+		toast.error(error.message);
+	}
+};
+
+const onClearReceived = async () => {
+	if (!confirming.value) {
+		confirming.value = true;
+		window.setTimeout(() => {
+			confirming.value = false;
+		}, 4000);
+		return;
+	}
+
+	confirming.value = false;
+	try {
+		await clearReceived();
+		toast.info("Fichiers reçus supprimés");
+	} catch (error) {
+		toast.error(error.message);
+	}
+};
+
+onMounted(() => {
+	refresh();
+	// Les fichiers reçus arrivent par la salle Wi-Fi : on rafraîchit la liste
+	// pendant que l'écran est ouvert, comme sur la page Transferts.
+	startTransferPolling();
+});
+
+onUnmounted(() => stopTransferPolling());
 </script>
 
 
@@ -104,20 +176,30 @@ onMounted(() => refresh());
 						<p class="mt-1 text-sm text-white/45">
 							{{ summary.completed }} élément(s) enregistré(s)
 							<span v-if="summary.active + summary.queued"> · {{ summary.active + summary.queued }} en cours</span>
+							<span v-if="received.length"> · {{ received.length }} reçu{{ received.length > 1 ? "s" : "" }}</span>
 							<span v-if="usedLabel"> · {{ usedLabel }} utilisés</span>
 						</p>
 					</div>
 				</div>
 
 				<button
-					v-if="activeTab === 'completed' && completedItems.length"
+					v-if="
+						(activeTab === 'completed' && completedItems.length) ||
+						(activeTab === 'received' && received.length)
+					"
 					type="button"
 					class="btn px-3 py-2 text-xs"
 					:class="confirming ? 'btn-solid' : 'btn-inverse'"
-					@click="onClearCompleted"
+					@click="activeTab === 'received' ? onClearReceived() : onClearCompleted()"
 				>
 					<AppIcon name="trash" :size="14" />
-					<span>{{ confirming ? "Confirmer la suppression" : "Vider les téléchargés" }}</span>
+					<span>{{
+						confirming
+							? "Confirmer la suppression"
+							: activeTab === "received"
+								? "Vider les reçus"
+								: "Vider les téléchargés"
+					}}</span>
 				</button>
 			</div>
 
@@ -129,7 +211,7 @@ onMounted(() => refresh());
 						type="button"
 						class="chip"
 						:class="activeTab === tab.value ? 'chip-active' : ''"
-						@click="activeTab = tab.value"
+						@click="((activeTab = tab.value), (confirming = false))"
 					>
 						{{ tab.label }} ({{ badgeFor(tab.value) }})
 					</button>
@@ -142,7 +224,68 @@ onMounted(() => refresh());
 				{{ lastError }}
 			</p>
 
-			<ul v-if="groups.length" class="space-y-3">
+			<!-- Fichiers reçus par la salle Wi-Fi : conservés sur l'appareil et lisibles ici. -->
+			<ul v-if="activeTab === 'received' && received.length" class="space-y-2">
+				<li
+					v-for="file in received"
+					:key="file.id"
+					class="surface flex items-center gap-3 p-3"
+				>
+					<span class="grid h-11 w-11 shrink-0 place-items-center rounded-xl" :class="toneFor(file)">
+						<AppIcon :name="iconFor(file)" :size="18" />
+					</span>
+
+					<div class="min-w-0 flex-1">
+						<p class="truncate text-sm font-semibold text-white/90">{{ file.name }}</p>
+						<p class="text-[11px] text-white/40">
+							{{ labelFor(file) }} · {{ formatSize(file.size) }}
+							<span v-if="file.addedAt"> · {{ formatDate(file.addedAt) }}</span>
+							<span v-if="file.uploader"> · de {{ file.uploader }}</span>
+						</p>
+					</div>
+
+					<div class="flex shrink-0 items-center gap-1.5">
+						<RouterLink
+							v-if="file.playable"
+							:to="{ name: 'watch-received', params: { id: file.id } }"
+							class="btn btn-solid px-3 py-2 text-xs"
+						>
+							<AppIcon name="play" :size="13" filled />
+							<span>Lire</span>
+						</RouterLink>
+
+						<a
+							:href="receivedTransferDownloadUrl(file.id)"
+							:download="file.name"
+							class="icon-btn h-9 w-9"
+							title="Enregistrer sur l'appareil"
+							aria-label="Enregistrer sur l'appareil"
+						>
+							<AppIcon name="hardDrive" :size="15" />
+						</a>
+
+						<button
+							type="button"
+							class="icon-btn h-9 w-9 text-white/50 hover:text-red-300"
+							aria-label="Supprimer"
+							@click="onRemoveReceived(file.id)"
+						>
+							<AppIcon name="trash" :size="15" />
+						</button>
+					</div>
+				</li>
+			</ul>
+
+			<EmptyState
+				v-else-if="activeTab === 'received'"
+				icon="transfer"
+				title="Aucun fichier reçu"
+				description="Les fichiers envoyés depuis un autre appareil du Wi-Fi sont enregistrés ici : lecture directe ou enregistrement sur l'appareil."
+				action-label="Ouvrir les transferts"
+				@action="$router.push('/transfers')"
+			/>
+
+			<ul v-else-if="groups.length" class="space-y-3">
 				<template v-for="group in groups" :key="group.type === 'series' ? `series-${group.title}` : group.entry.id">
 					<DownloadGroup
 						v-if="group.type === 'series'"

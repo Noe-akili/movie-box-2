@@ -32,6 +32,7 @@ const collection = ref(String(router.currentRoute.value.query.collection || "hom
 const sort = ref("popular");
 const search = ref(String(router.currentRoute.value.query.q || ""));
 
+const sources = ref([]);
 const collections = ref(FALLBACK_COLLECTIONS);
 const items = ref([]);
 const page = ref(1);
@@ -41,13 +42,24 @@ const isLoading = ref(true);
 const isLoadingMore = ref(false);
 const errorMessage = ref(null);
 
-const heading = computed(() => (source.value === "internal" ? "Catalogue gratuit" : "Films gratuits"));
-
-const subtitle = computed(() =>
-	total.value
-		? `${total.value.toLocaleString("fr-FR")} titres · lecture directe, sans compte`
-		: "Lecture directe, sans compte et sans paiement.",
+const activeSource = computed(
+	() => sources.value.find((item) => item.id === source.value) || null,
 );
+
+const heading = computed(() => {
+	if (source.value === "internal") return "Catalogue MovieBox";
+	return activeSource.value?.label || "Catalogue gratuit";
+});
+
+const subtitle = computed(() => {
+	const note = activeSource.value?.note;
+	if (total.value) {
+		return [`${total.value.toLocaleString("fr-FR")} titres`, note]
+			.filter(Boolean)
+			.join(" · ");
+	}
+	return note || "Lecture directe, sans compte et sans paiement.";
+});
 
 let debounce = null;
 
@@ -90,6 +102,7 @@ const load = async ({ reset }) => {
 		hasMore.value = data.hasMore;
 		total.value = data.total;
 		collections.value = data.collections?.length ? data.collections : FALLBACK_COLLECTIONS;
+		if (data.sources?.length) sources.value = data.sources;
 		errorMessage.value = null;
 	} catch (error) {
 		errorMessage.value = error.message;
@@ -97,6 +110,20 @@ const load = async ({ reset }) => {
 		isLoading.value = false;
 		isLoadingMore.value = false;
 	}
+};
+
+// Changer de source réinitialise la collection sur celle par défaut du fournisseur.
+const DEFAULT_COLLECTIONS = {
+	internal: "home",
+	archive: "feature_films",
+	commons: "Films in the public domain",
+};
+
+const onSourceChange = (value) => {
+	if (source.value === value) return;
+	source.value = value;
+	collection.value = DEFAULT_COLLECTIONS[value] || "";
+	search.value = "";
 };
 
 watch([source, collection, sort], () => {
@@ -143,6 +170,24 @@ onMounted(() => load({ reset: true }));
 					<button v-if="search" type="button" class="text-white/40 hover:text-white" aria-label="Effacer" @click="((search = ''), syncQuery(), load({ reset: true }))">
 						<AppIcon name="close" :size="16" />
 					</button>
+				</div>
+
+				<!-- Plusieurs fournisseurs de vidéos : MovieBox, Internet Archive, Commons. -->
+				<div v-if="sources.length > 1" class="space-y-1.5">
+					<p class="px-1 text-[10px] font-semibold uppercase tracking-wider text-white/35">Source</p>
+					<div class="rail -mx-1 px-1">
+						<button
+							v-for="option in sources"
+							:key="option.id"
+							type="button"
+							class="chip"
+							:class="source === option.id ? 'chip-active' : ''"
+							:title="option.note"
+							@click="onSourceChange(option.id)"
+						>
+							{{ option.label }}
+						</button>
+					</div>
 				</div>
 
 				<div class="rail -mx-1 px-1">

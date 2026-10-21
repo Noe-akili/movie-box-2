@@ -18,6 +18,8 @@ pub fn router() -> Router {
 		.route("/files", put(set_files))
 		.route("/received", delete(clear))
 		.route("/received/{id}", delete(remove))
+		.route("/received/{id}/file", get(received_file))
+		.route("/received/{id}/download", get(received_download))
 		// Rejoindre une salle existante depuis l'app (QR code ou adresse).
 		.route("/join", post(join))
 		.route("/leave", post(leave))
@@ -48,6 +50,22 @@ async fn clear() -> Json<Value> {
 
 async fn remove(Path(id): Path<String>) -> Result<Json<Value>> {
 	Ok(Json(transfer::remove_received(&id)?))
+}
+
+async fn received_file(Path(id): Path<String>, headers: HeaderMap) -> Result<Response> {
+	serve_received(&id, &headers, false).await
+}
+
+async fn received_download(Path(id): Path<String>, headers: HeaderMap) -> Result<Response> {
+	serve_received(&id, &headers, true).await
+}
+
+async fn serve_received(id: &str, headers: &HeaderMap, download: bool) -> Result<Response> {
+	let range = headers
+		.get(header::RANGE)
+		.and_then(|value| value.to_str().ok())
+		.map(|value| value.trim().to_string());
+	transfer::received_file(id, range, download).await
 }
 
 async fn join(Json(body): Json<Value>) -> Result<Json<Value>> {

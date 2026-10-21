@@ -267,6 +267,11 @@ export const updateTransferFiles = (files) => http.put("/transfer/files", { file
 export const shareAllTransferFiles = () => http.put("/transfer/files", { all: true });
 export const removeTransferFile = (id) => http.delete(`/transfer/received/${encodeURIComponent(id)}`);
 export const clearTransferFiles = () => http.delete("/transfer/received");
+/** Fichier reçu (salle Wi-Fi) : lecture directe ou enregistrement sur l'appareil. */
+export const receivedTransferFileUrl = (id) =>
+	mediaUrl(`/api/transfer/received/${encodeURIComponent(id)}/file`);
+export const receivedTransferDownloadUrl = (id) =>
+	mediaUrl(`/api/transfer/received/${encodeURIComponent(id)}/download`);
 export const joinTransferRoom = (url) => http.post("/transfer/join", { url });
 export const leaveTransferRoom = () => http.post("/transfer/leave");
 export const fetchRemoteTransferFiles = () => http.get("/transfer/remote");

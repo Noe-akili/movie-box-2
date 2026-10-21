@@ -23,6 +23,9 @@ const props = defineProps({
 	stream: { type: Object, default: null },
 	episode: { type: Object, default: null },
 	label: { type: String, default: "Télécharger" },
+	/** Raccourci « épisodes manquants » : ouvre directement la sélection. */
+	autoMissing: { type: Boolean, default: false },
+	initialSeason: { type: Number, default: null },
 });
 
 const emit = defineEmits(["close"]);
@@ -211,6 +214,17 @@ const downloadedCount = computed(
 	() => seasonEpisodes.value.filter((entry) => episodeState(entry.episode) === "downloaded").length,
 );
 
+/** Première saison contenant au moins un épisode qui n'est pas encore possédé. */
+const firstMissingSeason = () =>
+	seasons.value.find((season) =>
+		episodes.value.some(
+			(episode) =>
+				(episode.season ?? 1) === season && episodeState(episode) !== "downloaded",
+		),
+	) ??
+	seasons.value[0] ??
+	1;
+
 // Les épisodes déjà possédés ne sont pas proposés à la sélection (pas de doublon).
 const selectableEpisodes = computed(() =>
 	availableEpisodes.value.filter((entry) => episodeState(entry.episode) !== "downloaded"),
@@ -383,7 +397,13 @@ const downloadEpisodes = async () => {
 			if (resolved) stream = resolved;
 		}
 
-		const fileName = downloadFileName(props.item, stream, { episode, quality });
+		// Certains épisodes n'existent pas dans la qualité choisie : on nomme et
+		// on enregistre le fichier avec la qualité réellement résolue.
+		const resolvedQuality = stream?.quality || quality;
+		const fileName = downloadFileName(props.item, stream, {
+			episode,
+			quality: resolvedQuality,
+		});
 
 		if (!fileName) continue;
 
@@ -399,7 +419,7 @@ const downloadEpisodes = async () => {
 			label: episode.label || null,
 			poster: props.item?.poster,
 			backdrop: props.item?.backdrop,
-			quality,
+			quality: resolvedQuality,
 			format: stream?.format,
 		});
 	}
@@ -499,14 +519,29 @@ onMounted(async () => {
 	dialogRef.value?.focus();
 
 	if (effectiveSeries.value) {
-		selectedSeason.value = props.episode?.season ?? seasons.value[0] ?? 1;
-		if (props.episode && episodeState(props.episode) !== "downloaded") {
-			selectedKeys.value = [keyOf(props.episode)];
+		if (props.autoMissing) {
+			const wanted = Number(props.initialSeason);
+			selectedSeason.value =
+				Number.isFinite(wanted) && seasons.value.includes(wanted)
+					? wanted
+					: firstMissingSeason();
+			step.value = "episodes";
+		} else {
+			selectedSeason.value = props.episode?.season ?? seasons.value[0] ?? 1;
+			if (props.episode && episodeState(props.episode) !== "downloaded") {
+				selectedKeys.value = [keyOf(props.episode)];
+			}
 		}
 	}
 
 	await loadQualities(selectedSeason.value);
 	loadEpisodeSizes(selectedSeason.value);
+
+	// Les épisodes manquants sont pré-sélectionnés une fois la saison chargée :
+	// l'utilisateur n'a plus qu'à confirmer.
+	if (props.autoMissing) {
+		selectedKeys.value = selectableEpisodes.value.map((entry) => keyOf(entry.episode));
+	}
 });
 
 onBeforeUnmount(() => {

@@ -653,12 +653,32 @@ pub async fn source(path: &str, query: &[(&str, String)]) -> Result<Value> {
 			.and_then(Value::as_array)
 			.cloned()
 			.unwrap_or_default();
+		// `maxEp` ne décrit pas toujours toutes les qualités : une saison peut
+		// n'avoir que 10 épisodes en 480p et 22 en 360p. On transmet donc aussi
+		// `allEp` et le détail `resolutions[].epNum` pour que la liste des épisodes
+		// soit l'union de toutes les qualités.
 		let list: Vec<Value> = seasons
 			.iter()
 			.map(|season| {
+				let resolutions: Vec<Value> = season
+					.get("resolutions")
+					.and_then(Value::as_array)
+					.map(|items| {
+						items
+							.iter()
+							.filter_map(|resolution| {
+								let ep_num = resolution.get("epNum").and_then(Value::as_i64)?;
+								let quality = resolution.get("resolution").and_then(Value::as_i64)?;
+								Some(json!({ "epNum": ep_num, "resolution": quality }))
+							})
+							.collect()
+					})
+					.unwrap_or_default();
 				json!({
 					"se": season.get("se").and_then(Value::as_i64).unwrap_or(0),
 					"maxEp": season.get("maxEp").and_then(Value::as_i64).unwrap_or(0),
+					"allEp": season.get("allEp").cloned().unwrap_or(Value::Null),
+					"resolutions": resolutions,
 				})
 			})
 			.collect();

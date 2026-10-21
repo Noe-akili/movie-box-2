@@ -19,11 +19,16 @@ const props = defineProps({
 	episode: { type: Object, default: null },
 	label: { type: String, default: "Télécharger" },
 	compact: { type: Boolean, default: false },
+	/** Ouvre l'assistant dès le montage (raccourci « épisodes manquants »). */
+	autoOpen: { type: Boolean, default: false },
+	/** Pré-sélectionne les épisodes non téléchargés de la saison concernée. */
+	autoMissing: { type: Boolean, default: false },
+	initialSeason: { type: Number, default: null },
 });
 
 const { entryFor, retry } = useDownloads();
 const isStarting = ref(false);
-const isOpen = ref(false);
+const isOpen = ref(props.autoOpen);
 
 const sourceId = computed(() => downloadSourceId(props.item, props.episode));
 const fileName = computed(() => downloadFileName(props.item, props.stream, { episode: props.episode }));
@@ -113,6 +118,8 @@ const onRetry = async () => {
 		:stream="props.stream"
 		:episode="props.episode"
 		:label="props.label"
+		:auto-missing="props.autoMissing"
+		:initial-season="props.initialSeason"
 		@close="isOpen = false"
 	/>
 </template>

@@ -91,6 +91,14 @@ const routes = [
 		props: (route) => ({ mediaType: "local", id: String(route.params.id) }),
 		meta: { title: "Lecture hors ligne", chrome: false },
 	},
+	// Fichier reçu via la salle Wi-Fi locale : lecture depuis le stockage de l'app.
+	{
+		path: "/watch/received/:id",
+		name: "watch-received",
+		component: WatchPage,
+		props: (route) => ({ mediaType: "received", id: String(route.params.id) }),
+		meta: { title: "Fichier reçu", chrome: false },
+	},
 	// Anciens liens /movie/:id conserves pour ne pas casser les favoris existants.
 	{
 		path: "/movie/:id",

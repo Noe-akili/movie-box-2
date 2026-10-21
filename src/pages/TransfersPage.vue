@@ -566,6 +566,14 @@ onUnmounted(() => stopTransferPolling());
 								<span v-if="file.uploader"> · de {{ file.uploader }}</span>
 							</p>
 						</div>
+						<RouterLink
+							v-if="file.playable"
+							:to="{ name: 'watch-received', params: { id: file.id } }"
+							class="btn btn-inverse shrink-0 px-3 py-1.5 text-[11px]"
+						>
+							<AppIcon name="play" :size="13" filled />
+							<span>Lire</span>
+						</RouterLink>
 						<button
 							type="button"
 							class="icon-btn h-8 w-8"

@@ -74,6 +74,42 @@ const poster = computed(() => {
 });
 
 /**
+ * Fiche de la série d'origine, reconstruite depuis `sourceId` :
+ * `internal:<id>:<saison>:<épisode>` ou `<archiveId>` pour une archive libre.
+ */
+const seriesTarget = computed(() => {
+	const entry = props.group.entries.find((item) => item.sourceId);
+	const raw = String(entry?.sourceId || "");
+	const internal = raw.match(/^internal:([^:]+)/);
+	if (internal) return { mediaType: "internal", id: internal[1] };
+
+	const base = raw.replace(/:\d+:\d+$/, "");
+	return base ? { mediaType: "archive", id: base } : null;
+});
+
+/** Saison la plus récente du dossier : celle que l'utilisateur complète. */
+const latestSeason = computed(() => {
+	const numbers = props.group.entries
+		.map((entry) => entry.seasonNumber)
+		.filter((value) => Number.isFinite(value));
+	return numbers.length ? Math.max(...numbers) : null;
+});
+
+/** Ouvre l'assistant de téléchargement sur les épisodes non possédés. */
+const missingRoute = computed(() =>
+	seriesTarget.value
+		? {
+				name: "detail",
+				params: seriesTarget.value,
+				query: {
+					download: "missing",
+					...(latestSeason.value ? { season: String(latestSeason.value) } : {}),
+				},
+			}
+		: null,
+);
+
+/**
  * Épisode à lire ensuite : le premier dans l'ordre (saison, numéro) venant après
  * le plus récemment terminé — puis boucle au début (relecture d'une saison).
  */
@@ -231,6 +267,16 @@ const onRemoveMany = (close) => {
 				<span class="sm:hidden">Suivant</span>
 			</RouterLink>
 
+			<RouterLink
+				v-if="missingRoute"
+				:to="missingRoute"
+				class="icon-btn h-9 w-9 shrink-0 text-brandSoft"
+				title="Télécharger les épisodes manquants"
+				aria-label="Télécharger les épisodes manquants"
+			>
+				<AppIcon name="download" :size="17" />
+			</RouterLink>
+
 			<ActionMenu :label="`Actions pour ${group.title}`" :width="240">
 				<template #default="{ close }">
 					<RouterLink
@@ -240,6 +286,11 @@ const onRemoveMany = (close) => {
 					>
 						<AppIcon name="play" :size="15" filled />
 						<span>{{ watchedLabel }}</span>
+					</RouterLink>
+
+					<RouterLink v-if="missingRoute" :to="missingRoute" class="menu-item">
+						<AppIcon name="download" :size="15" />
+						<span>Télécharger les épisodes manquants</span>
 					</RouterLink>
 
 					<button type="button" class="menu-item" @click="expanded = !expanded">

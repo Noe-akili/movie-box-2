@@ -207,6 +207,8 @@ fn received_room_file(file: &RoomFile) -> Value {
 		"uploader": file.uploader,
 		"addedAt": file.added_at,
 		"downloadPath": format!("file/{}", file.id),
+		// Route locale de l'API (lecture/enregistrement depuis l'application).
+		"streamPath": format!("/api/transfer/received/{}/file", file.id),
 	})
 }
 
@@ -455,6 +457,20 @@ pub fn clear_received() -> Value {
 	}
 	persist_received(&[]);
 	json!({ "removed": files.len() })
+}
+
+/// Sert un fichier reçu depuis l'API locale (lecture ou enregistrement).
+pub async fn received_file(id: &str, range: Option<String>, download: bool) -> Result<Response> {
+	let (path, name) = {
+		let files = RECEIVED.lock().unwrap();
+		let file = files
+			.iter()
+			.find(|file| file.id == id)
+			.ok_or_else(|| ApiError::not_found("Fichier reçu introuvable"))?;
+		(transfer_dir().join(&file.stored_name), file.name.clone())
+	};
+
+	serve_path(path, &name, range, download).await
 }
 
 /// Normalise l'adresse d'une salle (`http://ip:port/jeton/`).

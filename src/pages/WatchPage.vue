@@ -6,8 +6,10 @@ import {
 	fetchDownload,
 	fetchInternalStreams,
 	fetchTitle,
+	fetchTransfer,
 	mediaUrl,
 	proxyStreamUrl,
+	receivedTransferFileUrl,
 } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import DownloadButton from "../components/DownloadButton.vue";
@@ -112,9 +114,12 @@ const trailer = computed(() => title.value?.trailer || null);
 const legalLinks = computed(() => title.value?.legalLinks || []);
 const related = computed(() => title.value?.related || title.value?.similar || []);
 const saved = computed(() => (title.value ? isFavorite(title.value) : false));
-const isLocal = computed(() => props.mediaType === "local");
+const isLocal = computed(() =>
+	["local", "received"].includes(props.mediaType),
+);
 // Identifiant stable par vidéo : sert de clé pour reprendre la lecture plus tard.
 const playerId = computed(() => {
+	if (props.mediaType === "received") return `received:${props.id}`;
 	if (isLocal.value) return `local:${props.id}`;
 	const base = title.value?.archiveId || title.value?.internalId || title.value?.id || props.id;
 	const episodePart =
@@ -183,6 +188,36 @@ const buildLocalTitle = (entry) => ({
 	externalLinks: [],
 });
 
+/** Fiche minimale pour un fichier reçu via la salle Wi-Fi locale. */
+const buildReceivedTitle = (file) => {
+	const extension = String(file.name || "").split(".").pop() || "Vidéo";
+	return {
+		id: file.id,
+		mediaType: "archive",
+		archiveId: `received:${file.id}`,
+		title: String(file.name || "Fichier reçu").replace(/\.[^.]+$/, ""),
+		overview: "",
+		poster: null,
+		backdrop: null,
+		streams: [
+			{
+				name: file.name,
+				quality: "Reçu",
+				format: extension.toUpperCase(),
+				size: file.size,
+				url: receivedTransferFileUrl(file.id),
+			},
+		],
+		episodes: [],
+		kind: "movie",
+		playable: true,
+		sourceLabel: "Fichier reçu — lecture hors ligne",
+		related: [],
+		legalLinks: [],
+		externalLinks: [],
+	};
+};
+
 const selectEpisode = async (index) => {
 	selectedEpisode.value = index;
 	selectedStream.value = 0;
@@ -225,6 +260,14 @@ const load = async () => {
 	useEmbed.value = false;
 
 	try {
+		if (props.mediaType === "received") {
+			const data = await fetchTransfer();
+			const file = (data?.received || []).find((item) => item.id === props.id);
+			if (!file) throw new Error("Ce fichier reçu n'est plus disponible");
+			title.value = buildReceivedTitle(file);
+			return;
+		}
+
 		if (isLocal.value) {
 			const entry = await fetchDownload(props.id);
 			localEntry.value = entry;

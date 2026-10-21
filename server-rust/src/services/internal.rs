@@ -630,6 +630,46 @@ fn sanitize_file_stem(input: &str) -> String {
 	}
 }
 
+/// Extrait un ou plusieurs numéros d'épisode (`"3"`, `"1-22"`, `"1, 2"`…).
+fn parse_episode_numbers(raw: &str) -> Vec<i64> {
+	let text = raw
+		.trim()
+		.trim_start_matches(|ch: char| ch == 'e' || ch == 'E' || ch == '#');
+	if text.is_empty() {
+		return vec![];
+	}
+
+	let normalized = text.replace('–', "-").replace('—', "-");
+	if let Some((start, end)) = normalized.split_once('-') {
+		if let (Ok(start), Ok(end)) = (start.trim().parse::<i64>(), end.trim().parse::<i64>()) {
+			if start > 0 && end >= start && end - start <= 1000 {
+				return (start..=end).collect();
+			}
+		}
+	}
+
+	normalized
+		.parse::<i64>()
+		.ok()
+		.filter(|number| *number > 0)
+		.into_iter()
+		.collect()
+}
+
+fn add_episode_number(
+	numbers: &mut std::collections::BTreeMap<i64, Option<String>>,
+	number: i64,
+	title: Option<String>,
+) {
+	if number <= 0 {
+		return;
+	}
+	let entry = numbers.entry(number).or_insert(None);
+	if entry.is_none() && title.is_some() {
+		*entry = title;
+	}
+}
+
 /// Épisodes d'une série interne (`/episodes/{id}`), aplatis au format Movie Box.
 pub async fn episodes(id: &str) -> Result<Vec<Value>> {
 	let payload = match internal_fetch(&format!("/episodes/{id}"), &[], 60_000).await {
@@ -656,27 +696,34 @@ pub async fn episodes(id: &str) -> Result<Vec<Value>> {
 			.and_then(|value| value.as_i64())
 			.unwrap_or(1);
 
-		let mut numbers: Vec<(i64, Option<String>)> = Vec::new();
+		// Une saison peut avoir des listes différentes selon la qualité : `allEp`
+		// (ou `maxEp`) décrit parfois seulement la 480p alors que la 360p contient
+		// davantage d'épisodes. On fait donc l'union de toutes les sources au lieu
+		// de s'arrêter à la première liste non vide.
+		let mut numbers: std::collections::BTreeMap<i64, Option<String>> =
+			std::collections::BTreeMap::new();
 		for key in ["allEp", "epList", "episodeList", "episodes", "list", "items"] {
 			match season.get(key) {
 				Some(Value::String(pool)) => {
-					numbers.extend(
-						pool.split(',')
-							.filter_map(|raw| raw.trim().parse::<i64>().ok())
-							.map(|number| (number, None)),
-					);
+					for raw in pool.split(|ch: char| {
+						ch == ',' || ch == ';' || ch == '|' || ch == '/' || ch.is_whitespace()
+					}) {
+						for number in parse_episode_numbers(raw) {
+							add_episode_number(&mut numbers, number, None);
+						}
+					}
 				}
 				Some(Value::Array(pool)) => {
 					for item in pool {
 						match item {
 							Value::Number(value) => {
 								if let Some(number) = value.as_i64() {
-									numbers.push((number, None));
+									add_episode_number(&mut numbers, number, None);
 								}
 							}
 							Value::String(text) => {
-								if let Ok(number) = text.parse::<i64>() {
-									numbers.push((number, None));
+								for number in parse_episode_numbers(text) {
+									add_episode_number(&mut numbers, number, None);
 								}
 							}
 							Value::Object(map) => {
@@ -686,7 +733,11 @@ pub async fn episodes(id: &str) -> Result<Vec<Value>> {
 									.or_else(|| map.get("episode_number"))
 									.and_then(|value| value.as_i64())
 								{
-									numbers.push((number, first_str(&[map.get("title")])));
+									add_episode_number(
+										&mut numbers,
+										number,
+										first_str(&[map.get("title")]),
+									);
 								}
 							}
 							_ => {}
@@ -695,18 +746,32 @@ pub async fn episodes(id: &str) -> Result<Vec<Value>> {
 				}
 				_ => {}
 			}
-			if !numbers.is_empty() {
-				break;
+		}
+
+		// `maxEp` est un compteur fiable pour la qualité principale : on complète
+		// toujours jusqu'à ce maximum, même quand une liste plus courte existe.
+		if let Some(max_ep) = season
+			.get("maxEp")
+			.or_else(|| season.get("max_ep"))
+			.and_then(|value| value.as_i64())
+		{
+			for number in 1..=max_ep {
+				add_episode_number(&mut numbers, number, None);
 			}
 		}
 
-		if numbers.is_empty() {
-			if let Some(max_ep) = season
-				.get("maxEp")
-				.or_else(|| season.get("max_ep"))
-				.and_then(|value| value.as_i64())
-			{
-				numbers.extend((1..=max_ep).map(|number| (number, None)));
+		// Et chaque qualité annonce son propre nombre d'épisodes (`epNum`).
+		if let Some(resolutions) = season.get("resolutions").and_then(Value::as_array) {
+			for resolution in resolutions {
+				if let Some(ep_num) = resolution
+					.get("epNum")
+					.or_else(|| resolution.get("ep_num"))
+					.and_then(|value| value.as_i64())
+				{
+					for number in 1..=ep_num {
+						add_episode_number(&mut numbers, number, None);
+					}
+				}
 			}
 		}
 
