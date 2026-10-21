@@ -214,6 +214,20 @@ const downloadedCount = computed(
 	() => seasonEpisodes.value.filter((entry) => episodeState(entry.episode) === "downloaded").length,
 );
 
+/**
+ * Numéro du dernier épisode déjà téléchargé dans une saison : le raccourci
+ * « épisodes manquants » ne propose que les épisodes suivants, jamais ceux
+ * situés avant un épisode déjà possédé.
+ */
+const lastDownloadedNumber = (season) =>
+	episodes.value.reduce((highest, episode) => {
+		if ((episode.season ?? 1) !== season) return highest;
+		if (episodeState(episode) !== "downloaded") return highest;
+		return Math.max(highest, episode.number ?? 0);
+	}, 0);
+
+const selectionFloor = computed(() => lastDownloadedNumber(selectedSeason.value));
+
 /** Première saison contenant au moins un épisode qui n'est pas encore possédé. */
 const firstMissingSeason = () =>
 	seasons.value.find((season) =>
@@ -540,7 +554,10 @@ onMounted(async () => {
 	// Les épisodes manquants sont pré-sélectionnés une fois la saison chargée :
 	// l'utilisateur n'a plus qu'à confirmer.
 	if (props.autoMissing) {
-		selectedKeys.value = selectableEpisodes.value.map((entry) => keyOf(entry.episode));
+		const floor = selectionFloor.value;
+		selectedKeys.value = selectableEpisodes.value
+			.filter((entry) => (entry.episode.number ?? 0) > floor)
+			.map((entry) => keyOf(entry.episode));
 	}
 });
 
@@ -678,6 +695,9 @@ onBeforeUnmount(() => {
 								Saison {{ selectedSeason }} · {{ selectedQuality }} · {{ selectedCount }} sélectionné(s)
 								<span v-if="downloadedCount" class="text-emerald-300/80">
 									· {{ downloadedCount }} déjà téléchargé{{ downloadedCount > 1 ? "s" : "" }}
+								</span>
+								<span v-if="autoMissing && selectionFloor" class="text-white/35">
+									· à partir de l'épisode {{ selectionFloor + 1 }}
 								</span>
 							</p>
 							<p
