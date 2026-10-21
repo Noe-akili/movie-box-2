@@ -1,5 +1,5 @@
 {
-  "name": "movie-box",
+  "name": "moviebox-2",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -23,6 +23,7 @@
     "baseline-browser-mapping": "^2.10.20",
     "caniuse-lite": "^1.0.30001788",
     "jsqr": "^1.4.0",
+    "tauri-plugin-background-service": "^1.0.1",
     "vue": "^3.5.34",
     "vue-router": "^4.6.4"
   },

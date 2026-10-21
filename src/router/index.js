@@ -115,7 +115,7 @@ const router = createRouter({
 });
 
 router.afterEach((to) => {
-	const base = "Movie Box";
+	const base = "moviebox-2";
 	document.title = to.meta?.title ? `${to.meta.title} · ${base}` : base;
 });
 

@@ -3,5 +3,10 @@
 	"identifier": "default",
 	"description": "Permissions de la fenêtre principale de Movie Box.",
 	"windows": ["main"],
-	"permissions": ["core:default"]
+	"permissions": [
+		"core:default",
+		"background-service:allow-start",
+		"background-service:allow-stop",
+		"background-service:allow-is-running"
+	]
 }

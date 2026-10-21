@@ -112,6 +112,30 @@ fn is_blocked_host(host: &str) -> bool {
 	false
 }
 
+/// Type MIME déduit de l'extension du flux (l'URL peut contenir une signature).
+fn stream_mime(src: &str) -> Option<&'static str> {
+	let path = src.split(['?', '#']).next().unwrap_or(src).to_ascii_lowercase();
+	let path = path.split('/').next_back().unwrap_or(&path);
+
+	if path.ends_with(".mp4") || path.ends_with(".m4v") {
+		Some("video/mp4")
+	} else if path.ends_with(".webm") {
+		Some("video/webm")
+	} else if path.ends_with(".ogv") || path.ends_with(".ogg") {
+		Some("video/ogg")
+	} else if path.ends_with(".mkv") {
+		Some("video/x-matroska")
+	} else if path.ends_with(".m3u8") {
+		Some("application/vnd.apple.mpegurl")
+	} else if path.ends_with(".mov") {
+		Some("video/quicktime")
+	} else if path.ends_with(".avi") {
+		Some("video/x-msvideo")
+	} else {
+		None
+	}
+}
+
 /// Proxy média : relaie un flux CDN vers le navigateur (CORS + en-tête `Cookie` de signature).
 pub async fn proxy(request: Request) -> Result<Response> {
 	let uri = request.uri().clone();
@@ -137,43 +161,96 @@ pub async fn proxy(request: Request) -> Result<Response> {
 		return Err(ApiError::bad_request("Hôte de flux non autorisé"));
 	}
 
-	let mut upstream = crate::http::client()
-		.get(url)
-		.header("user-agent", "ExoPlayerLib/2.18.7")
-		.header("accept", "*/*")
-		// Le CDN video (bcdnxw.hakunaymatata.com) applique une protection
-		// anti-hotlink qui repond 429 sauf pour certains referers autorises.
-		// `movieboxapp.in` est l'un d'eux : sans cet en-tete tous les flux
-		// videos sont refuses.
-		.header("referer", "https://movieboxapp.in/");
-	if !cookie.is_empty() {
-		upstream = upstream.header("cookie", cookie);
-	}
-	if let Some(range) = request
+	let range = request
 		.headers()
 		.get(header::RANGE)
 		.and_then(|value| value.to_str().ok())
-	{
-		upstream = upstream.header("range", range);
+		.map(str::to_string);
+
+	// Le CDN video (bcdnxw.hakunaymatata.com) applique une protection
+	// anti-hotlink qui repond 429 sauf pour certains referers autorises.
+	// `movieboxapp.in` est l'un d'eux : sans cet en-tete tous les flux
+	// videos sont refuses.
+	//
+	// On rejoue la requete avec plusieurs profils car les flux changent de
+	// CDN : le telechargeur du backend (UA `movie-box/1.0`, sans cookie) est
+	// notre reference qui fonctionne. Un cookie de signature perime fait
+	// echouer certains CDN, d'ou la tentative sans cookie en premier.
+	let mut profiles: Vec<(&str, Option<&str>)> = vec![
+		("movie-box/1.0", None),
+		(
+			"Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36",
+			None,
+		),
+	];
+	if !cookie.is_empty() {
+		profiles.push(("movie-box/1.0", Some(cookie.as_str())));
 	}
 
-	let response = upstream
-		.send()
-		.await
-		.map_err(|_| ApiError::upstream(504, "Flux distant injoignable"))?;
+	let mut response = None;
+	let mut last_status_response = None;
+	for (agent, cookie_value) in profiles {
+		let mut upstream = crate::http::client()
+			.get(url.clone())
+			.header("user-agent", agent)
+			.header("accept", "*/*")
+			// Evite une decompression transparente : `content-length` doit rester
+			// coherent avec le corps transmis pour que le seek fonctionne.
+			.header("accept-encoding", "identity")
+			.header("referer", "https://movieboxapp.in/")
+			.header("origin", "https://h5.aoneroom.com");
+		if let Some(value) = cookie_value {
+			upstream = upstream.header("cookie", value);
+		}
+		if let Some(value) = &range {
+			upstream = upstream.header("range", value);
+		}
+
+		match upstream.send().await {
+			Ok(candidate)
+				if candidate.status().is_success()
+					|| candidate.status() == StatusCode::PARTIAL_CONTENT =>
+			{
+				response = Some(candidate);
+				break;
+			}
+			Ok(candidate) => last_status_response = Some(candidate),
+			Err(_) => continue,
+		}
+	}
+
+	let response = response
+		.or(last_status_response)
+		.ok_or_else(|| ApiError::upstream(504, "Flux distant injoignable"))?;
 
 	let status = response.status();
+	if !status.is_success() && status != StatusCode::PARTIAL_CONTENT {
+		eprintln!("[movie-box] proxy média {host} → HTTP {}", status.as_u16());
+	}
 	let mut builder = Response::builder().status(StatusCode::from_u16(status.as_u16()).unwrap());
 
-	if let Some(content_type) = response.headers().get(header::CONTENT_TYPE) {
-		builder = builder.header(header::CONTENT_TYPE, content_type);
+	// Certains CDN renvoient `application/octet-stream` : la WebView Android
+	// refuse alors de lire la video. On retombe sur le type deduit de l'URL.
+	let upstream_type = response
+		.headers()
+		.get(header::CONTENT_TYPE)
+		.and_then(|value| value.to_str().ok())
+		.map(str::trim)
+		.filter(|value| !value.is_empty() && !value.starts_with("application/octet-stream"));
+	let content_type = upstream_type
+		.map(str::to_string)
+		.or_else(|| stream_mime(&src).map(str::to_string));
+	if let Some(value) = content_type {
+		builder = builder.header(header::CONTENT_TYPE, value);
 	}
 	for name in ["content-range", "accept-ranges", "content-length"] {
 		if let Some(value) = response.headers().get(name) {
 			builder = builder.header(name, value);
 		}
 	}
-	builder = builder.header(header::CACHE_CONTROL, "no-store");
+	builder = builder
+		.header(header::CACHE_CONTROL, "no-store")
+		.header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 
 	let body = axum::body::Body::from_stream(response.bytes_stream());
 	builder

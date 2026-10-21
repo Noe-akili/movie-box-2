@@ -1,6 +1,6 @@
 {
-	"name": "Movie Box — Films, séries et films gratuits",
-	"short_name": "Movie Box",
+	"name": "moviebox-2 — Films, séries et films gratuits",
+	"short_name": "moviebox-2",
 	"description": "Catalogue mondial de films et séries, films libres de droits en lecture gratuite et offres légales gratuites.",
 	"start_url": "/",
 	"scope": "/",

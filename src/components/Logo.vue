@@ -15,7 +15,7 @@ const props = defineProps({
 			class="text-lg font-bold sm:text-xl md:text-2xl"
 			:class="[props.color || 'text-white', props.hideText ? 'hidden sm:inline' : '']"
 		>
-			MovieBox
+			moviebox-2
 		</span>
 	</RouterLink>
 </template>

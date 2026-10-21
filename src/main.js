@@ -84,6 +84,7 @@ async function bootstrap() {
 	applySafeAreaInsets();
 
 	createApp(App).use(router).mount("#root");
+	window.__hideBootSplash?.();
 	prefetchCommonRoutes();
 }
 

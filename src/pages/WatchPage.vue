@@ -1,7 +1,14 @@
 <script setup>
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { downloadStreamUrl, fetchDownload, fetchInternalStreams, fetchTitle, mediaUrl } from "../api/client";
+import {
+	downloadStreamUrl,
+	fetchDownload,
+	fetchInternalStreams,
+	fetchTitle,
+	mediaUrl,
+	proxyStreamUrl,
+} from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import DownloadButton from "../components/DownloadButton.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -41,6 +48,58 @@ const streams = computed(() => {
 });
 
 const currentStream = computed(() => streams.value[selectedStream.value] || null);
+
+// Lecture en ligne : si le flux direct échoue (CDN anti-hotlink, WebView), on
+// rejoue via le proxy local du backend ; si un flux proxifié échoue, on tente
+// l'URL CDN directe. On garde la dernière erreur pour prévenir l'utilisateur.
+const playbackMode = ref("default");
+const playbackError = ref(null);
+
+const playerSource = computed(() => {
+	const stream = currentStream.value;
+	if (!stream?.url) return "";
+	const raw = stream.url;
+
+	if (playbackMode.value === "proxy" && !raw.startsWith("/")) {
+		return mediaUrl(proxyStreamUrl(raw));
+	}
+	if (playbackMode.value === "direct" && raw.startsWith("/") && stream.directUrl) {
+		return mediaUrl(stream.directUrl);
+	}
+	return mediaUrl(raw);
+});
+
+const onPlayerError = () => {
+	const stream = currentStream.value;
+	if (!stream?.url) return;
+
+	if (playbackMode.value === "default") {
+		// Flux proxifié : on tente le CDN en direct. Flux direct : on tente le proxy.
+		if (stream.url.startsWith("/") && stream.directUrl) {
+			playbackMode.value = "direct";
+			return;
+		}
+		if (!stream.url.startsWith("/")) {
+			playbackMode.value = "proxy";
+			return;
+		}
+	}
+
+	playbackError.value =
+		"La vidéo n'a pas pu être lue en ligne. Essaie une autre qualité ou télécharge-la pour la regarder hors ligne.";
+	toast.error("Lecture en ligne impossible");
+};
+
+const retryPlayback = () => {
+	playbackMode.value = "default";
+	playbackError.value = null;
+};
+
+watch([selectedStream, selectedEpisode], () => {
+	playbackMode.value = "default";
+	playbackError.value = null;
+});
+
 // Qualités proposées dans le menu de réglages du lecteur (masqué sous 2 entrées).
 const playerQualities = computed(() =>
 	streams.value.map((stream) => ({
@@ -260,16 +319,17 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 
 		<template v-else-if="title">
 			<div class="w-full bg-black">
-				<div class="mx-auto aspect-video w-full max-w-[1800px]">
+				<div class="relative mx-auto aspect-video w-full max-w-[1800px]">
 					<VideoPlayer
 						v-if="free && currentStream && !useEmbed"
-						:key="mediaUrl(currentStream.url)"
+						:key="`${playerSource}:${playbackMode}`"
 						:id="playerId"
-						:src="mediaUrl(currentStream.url)"
+						:src="playerSource"
 						:poster="title.backdrop || title.poster"
 						:qualities="playerQualities"
 						autoplay
 						class="h-full w-full bg-black"
+						@error="onPlayerError"
 					/>
 
 					<iframe
@@ -299,6 +359,16 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 								officielles, dont les offres gratuites financées par la publicité.
 							</p>
 						</div>
+					</div>
+
+					<div
+						v-if="playbackError"
+						class="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-between gap-2 bg-black/85 px-4 py-3 text-xs text-white/80 backdrop-blur"
+					>
+						<span class="min-w-0 flex-1">{{ playbackError }}</span>
+						<button type="button" class="btn btn-inverse shrink-0 px-3 py-1.5 text-xs" @click="retryPlayback">
+							Réessayer
+						</button>
 					</div>
 				</div>
 			</div>

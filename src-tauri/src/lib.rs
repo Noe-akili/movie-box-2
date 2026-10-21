@@ -279,6 +279,32 @@ fn spawn_media_server<R: tauri::Runtime>(app: &tauri::App<R>) {
 	});
 }
 
+/// Garde le processus éveillé quand l'application passe en arrière-plan
+/// (service de premier plan Android) : les téléchargements continuent côté
+/// backend. Ce service ne fait aucun travail lui-même, il maintient juste la
+/// durée de vie du processus jusqu'à l'arrêt demandé par l'interface.
+struct DownloadsKeepAlive;
+
+#[async_trait::async_trait]
+impl<R: tauri::Runtime> tauri_plugin_background_service::BackgroundService<R>
+	for DownloadsKeepAlive
+{
+	async fn init(
+		&mut self,
+		_ctx: &tauri_plugin_background_service::ServiceContext<R>,
+	) -> std::result::Result<(), tauri_plugin_background_service::ServiceError> {
+		Ok(())
+	}
+
+	async fn run(
+		&mut self,
+		ctx: &tauri_plugin_background_service::ServiceContext<R>,
+	) -> std::result::Result<(), tauri_plugin_background_service::ServiceError> {
+		ctx.shutdown.cancelled().await;
+		Ok(())
+	}
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
 	// Le crochet est posé avant tout : une panique (même rattrapée plus bas)
@@ -291,6 +317,13 @@ pub fn run() {
 	));
 
 	tauri::Builder::default()
+		// Notifications (utilisées par le service de premier plan) puis service
+		// d'arrière-plan : les téléchargements survivent à la mise en veille de
+		// la WebView sur Android.
+		.plugin(tauri_plugin_notification::init())
+		.plugin(tauri_plugin_background_service::init_with_service(|| {
+			DownloadsKeepAlive
+		}))
 		// État déclaré AVANT la création de la fenêtre : le gestionnaire du
 		// protocole ne peut jamais paniquer sur un état absent (cf. `Backend`).
 		.manage(Backend {

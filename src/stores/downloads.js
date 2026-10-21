@@ -1,4 +1,4 @@
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import {
 	cancelDownload as apiCancel,
 	createDownload as apiCreate,
@@ -6,6 +6,7 @@ import {
 	fetchDownloads,
 	retryDownload as apiRetry,
 } from "../api/client";
+import { syncBackgroundDownloads } from "../util/background";
 
 /**
  * Etat des telechargements cote interface.
@@ -37,6 +38,12 @@ const hasActive = computed(() => items.value.some((item) => ACTIVE_STATUSES.incl
 const activeCount = computed(() => items.value.filter((item) => ACTIVE_STATUSES.includes(item.status)).length);
 const completedItems = computed(() => items.value.filter((item) => item.status === "completed"));
 const pendingItems = computed(() => items.value.filter((item) => item.status !== "completed"));
+
+// Android : active le service de premier plan tant qu'un transfert est en
+// cours, pour que la mise en arrière-plan ne gèle pas les téléchargements.
+watch(hasActive, (active) => {
+	syncBackgroundDownloads(active);
+});
 
 const refresh = async ({ silent = false } = {}) => {
 	if (!silent) isLoading.value = true;

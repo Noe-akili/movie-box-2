@@ -60,6 +60,7 @@ jobs:
           sdkmanager --install \
             "platform-tools" \
             "platforms;android-35" \
+            "platforms;android-36" \
             "build-tools;35.0.0" \
             "ndk;${NDK_VERSION}"
           echo "NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
@@ -186,6 +187,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: movie-box-android-release
+          name: moviebox-2-android-release
           path: ${{ env.APK_SIGNED }}
           if-no-files-found: error

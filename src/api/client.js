@@ -48,6 +48,13 @@ export const apiBase = () =>
 export const mediaUrl = (url) =>
 	url && url.startsWith("/") && serverOrigin() ? `${serverOrigin()}${url}` : url;
 
+/**
+ * Passe un flux distant par le proxy local du backend (contourne les blocages
+ * anti-hotlink / CORS de la WebView et garde le seek via les requêtes Range).
+ */
+export const proxyStreamUrl = (url) =>
+	`/api/internal/proxy?src=${encodeURIComponent(url)}`;
+
 /** `invoke` de Tauri, résolu au moment de l'appel. */
 function tauriInvoke() {
 	if (typeof window === "undefined") return null;

@@ -70,10 +70,22 @@ const isWorking = ref(false);
 
 const keyOf = (episode) => `${episode.season ?? 1}:${episode.number ?? 1}`;
 
-const movieStream = computed(() => {
-	const list = props.item?.streams || [];
-	return pickQualityStream(list, selectedQuality.value) || props.stream || null;
+const qualityStreams = computed(() => {
+	const list = Array.isArray(props.item?.streams) ? props.item.streams : [];
+	if (list.length) return list;
+	return props.stream ? [props.stream] : [];
 });
+
+const movieStream = computed(
+	() => pickQualityStream(qualityStreams.value, selectedQuality.value) || props.stream || null,
+);
+
+// Chaque qualité a son propre poids : sans cette recherche par qualité, toutes
+// les lignes affichaient la taille de la qualité actuellement sélectionnée.
+const sizeForQuality = (quality) => {
+	const stream = pickQualityStream(qualityStreams.value, quality);
+	return typeof stream?.size === "number" && stream.size > 0 ? stream.size : null;
+};
 
 const seasonEpisodes = computed(() =>
 	episodes.value
@@ -593,7 +605,7 @@ onBeforeUnmount(() => {
 									<span class="text-sm font-semibold text-white">{{ quality }}</span>
 								</span>
 								<span class="flex items-center gap-2 text-[11px] text-white/40">
-									<span v-if="!effectiveSeries && movieStream?.size">{{ formatSize(movieStream.size) }}</span>
+									<span v-if="!effectiveSeries && sizeForQuality(quality)">{{ formatSize(sizeForQuality(quality)) }}</span>
 									<AppIcon v-if="selectedQuality === quality" name="check" :size="16" class="text-brandSoft" />
 								</span>
 							</button>
