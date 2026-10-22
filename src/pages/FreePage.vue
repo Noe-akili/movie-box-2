@@ -117,6 +117,12 @@ const DEFAULT_COLLECTIONS = {
 	internal: "home",
 	archive: "feature_films",
 	commons: "Films in the public domain",
+	nasa: "apollo",
+	blender: "all",
+	europeana: "film",
+	pexels: "nature",
+	pixabay: "nature",
+	loc: "feature-films",
 };
 
 const onSourceChange = (value) => {

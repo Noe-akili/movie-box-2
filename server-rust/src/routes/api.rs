@@ -17,6 +17,7 @@ use crate::services::archive::{self, ArchiveSearchParams, DEFAULT_ARCHIVE_LICENS
 use crate::services::commons::{self, CommonsSearchParams};
 use crate::services::free::{self, FreeSearchParams};
 use crate::services::internal;
+use crate::services::open;
 use crate::services::providers::{build_legal_links, legal_info};
 
 use crate::services::tmdb::{
@@ -313,7 +314,8 @@ enum HomeMsg {
 	Tmdb { index: usize, payload: Option<Value> },
 	Archive(Vec<Option<Value>>),
 	Commons(Option<Value>),
-				Internal(std::result::Result<Vec<Value>, ()>),
+	Open(Vec<Value>),
+	Internal(std::result::Result<Vec<Value>, ()>),
 }
 
 /// Page d'accueil : toutes les sources démarrent en même temps (budget global).
@@ -409,7 +411,61 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 		});
 	}
 
-	// 4. Rail de la source interne (moviebox-internal-api).
+	// 4. Rails des catalogues libres supplémentaires (NASA, Blender, …).
+	{
+		let tx = tx.clone();
+		tokio::spawn(async move {
+			let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+			let tasks = open::enabled_sources().into_iter().map(|source| {
+				let semaphore = semaphore.clone();
+				async move {
+					let _permit = semaphore.acquire().await;
+					let result = free::search_free(FreeSearchParams {
+						source,
+						q: "",
+						collection: free::default_free_collection(source),
+						license: "free",
+						page: 1,
+						rows: 12,
+						sort: Some("popular"),
+					})
+					.await;
+					match result {
+						Ok(value) => Some((source, (*value).clone())),
+						Err(error) => {
+							eprintln!("[movie-box] rail {source} indisponible : {error}");
+							None
+						}
+					}
+				}
+			});
+			let results = futures::future::join_all(tasks).await;
+			let rails: Vec<Value> = results
+				.into_iter()
+				.flatten()
+				.filter_map(|(source, payload)| {
+					let items = payload
+						.get("items")
+						.and_then(Value::as_array)
+						.cloned()
+						.unwrap_or_default();
+					if items.is_empty() {
+						return None;
+					}
+					Some(json!({
+						"id": format!("free-{source}"),
+						"title": open::label_for_source(source),
+						"kind": "archive",
+						"href": format!("/free?source={source}"),
+						"items": items,
+					}))
+				})
+				.collect();
+			let _ = tx.send(HomeMsg::Open(rails));
+		});
+	}
+
+	// 5. Rail de la source interne (moviebox-internal-api).
 	{
 		let tx = tx.clone();
 		tokio::spawn(async move {
@@ -425,6 +481,7 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 		tmdb_count: usize,
 		archive: Option<Vec<Option<Value>>>,
 		common: Option<Option<Value>>,
+		open: Option<Vec<Value>>,
 		internal: Option<Result<Vec<Value>, ()>>,
 	}
 
@@ -439,6 +496,7 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 				}
 				HomeMsg::Archive(results) => self.archive = Some(results),
 				HomeMsg::Commons(payload) => self.common = Some(payload),
+				HomeMsg::Open(rails) => self.open = Some(rails),
 				HomeMsg::Internal(result) => self.internal = Some(result),
 			}
 		}
@@ -480,6 +538,7 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 	let pending = (state.tmdb_count < TMDB_RAILS.len()) as i32
 		+ state.archive.is_none() as i32
 		+ state.common.is_none() as i32
+		+ state.open.is_none() as i32
 		+ state.internal.is_none() as i32;
 
 	let mut rails: Vec<Value> = Vec::new();
@@ -550,6 +609,10 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 				"items": items,
 			}));
 		}
+	}
+
+	if let Some(open_rails) = state.open {
+		rails.extend(open_rails);
 	}
 
 	if let Some(Ok(cards)) = state.internal {
@@ -676,8 +739,42 @@ async fn search(Query(params): Query<Params>) -> Result<Json<Value>> {
 		}
 	};
 
-	let (tmdb_settled, free_settled, commons_settled) =
-		tokio::join!(tmdb_task, free_task, commons_task);
+	// Les catalogues libres supplémentaires complètent la recherche, sauf
+	// celui qui est déjà la source principale.
+	let open_task = async {
+		let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
+		let tasks = open::enabled_sources()
+			.into_iter()
+			.filter(|open_source| *open_source != source)
+			.map(|open_source| {
+				let semaphore = semaphore.clone();
+				let query = query.clone();
+				async move {
+					let _permit = semaphore.acquire().await;
+					open::search(open::OpenSearchParams {
+						source: open_source,
+						q: &query,
+						collection: "",
+						page,
+						rows: 6,
+						sort: Some("popular"),
+					})
+					.await
+					.ok()
+				}
+			});
+		let results = futures::future::join_all(tasks).await;
+		let mut items: Vec<Value> = Vec::new();
+		for result in results.into_iter().flatten() {
+			if let Some(list) = result.get("items").and_then(Value::as_array) {
+				items.extend(list.iter().cloned());
+			}
+		}
+		items
+	};
+
+	let (tmdb_settled, free_settled, commons_settled, open_items) =
+		tokio::join!(tmdb_task, free_task, commons_task, open_task);
 
 	let results: Vec<Value> = if tmdb_settled.iter().all(|result| result.is_ok()) {
 		let mut cards: Vec<Value> = tmdb_settled
@@ -741,6 +838,7 @@ async fn search(Query(params): Query<Params>) -> Result<Json<Value>> {
 		.cloned()
 		.unwrap_or_default();
 	let mut commons_count = 0;
+	let mut seen_ids: Vec<String> = known_ids.clone();
 	if let Some(commons_result) = commons_free {
 		let commons_items = commons_result
 			.get("items")
@@ -750,11 +848,26 @@ async fn search(Query(params): Query<Params>) -> Result<Json<Value>> {
 		commons_count = commons_items.len();
 		for item in commons_items {
 			let archive_id = item.get("archiveId").and_then(|value| value.as_str());
-			if archive_id.is_some_and(|id| known_ids.contains(&id.to_string())) {
+			if archive_id.is_some_and(|id| seen_ids.contains(&id.to_string())) {
 				continue;
+			}
+			if let Some(id) = archive_id {
+				seen_ids.push(id.to_string());
 			}
 			free_items.push(item);
 		}
+	}
+
+	let open_count = open_items.len();
+	for item in open_items {
+		let archive_id = item.get("archiveId").and_then(|value| value.as_str());
+		if archive_id.is_some_and(|id| seen_ids.contains(&id.to_string())) {
+			continue;
+		}
+		if let Some(id) = archive_id {
+			seen_ids.push(id.to_string());
+		}
+		free_items.push(item);
 	}
 
 	Ok(Json(json!({
@@ -769,6 +882,7 @@ async fn search(Query(params): Query<Params>) -> Result<Json<Value>> {
 			"total": primary_free.get("total").cloned().unwrap_or(Value::from(0)),
 			"hasMore": primary_free.get("hasMore").cloned().unwrap_or(Value::Bool(false)),
 			"commons": commons_count,
+			"open": open_count,
 			"items": free_items,
 		},
 	})))

@@ -16,30 +16,36 @@ use super::archive::{
 };
 use super::commons::{self, CommonsSearchParams, COMMONS_CATEGORIES, DEFAULT_COMMONS_CATEGORY};
 use super::internal;
+use super::open;
 
 /// Sources jouables proposées dans l'application.
 pub fn free_sources() -> Value {
-	json!([
-		{
+	let mut sources = vec![
+		json!({
 			"id": "internal",
 			"label": "MovieBox (source principale)",
 			"note": "Catalogue et flux vidéo de la source MovieBox locale"
-		},
-		{
+		}),
+		json!({
 			"id": "archive",
 			"label": "Internet Archive",
 			"note": "Domaine public & Creative Commons"
-		},
-		{
+		}),
+		json!({
 			"id": "commons",
 			"label": "Wikimedia Commons",
 			"note": "Licences vérifiées par la communauté"
-		}
-	])
+		}),
+	];
+	sources.extend(open::sources());
+	Value::Array(sources)
 }
 
 /// Source principale : movie-box-2 s'appuie par défaut sur la source MovieBox locale.
 pub fn resolve_free_source(value: Option<&str>) -> &'static str {
+	if let Some(source) = value.and_then(open::resolve_source) {
+		return source;
+	}
 	match value {
 		Some("commons") => "commons",
 		Some("archive") => "archive",
@@ -64,6 +70,7 @@ pub fn free_collections(source: &str) -> Value {
 			.iter()
 			.map(|(id, label)| json!({ "id": id, "label": label }))
 			.collect::<Vec<_>>()),
+		other if open::resolve_source(other).is_some() => open::collections(other),
 		_ => json!(
 			ARCHIVE_COLLECTIONS
 				.iter()
@@ -77,6 +84,7 @@ pub fn default_free_collection(source: &str) -> &'static str {
 	match source {
 		"commons" => DEFAULT_COMMONS_CATEGORY,
 		"internal" => internal::DEFAULT_COLLECTION,
+		other if open::resolve_source(other).is_some() => open::default_collection(other),
 		_ => DEFAULT_ARCHIVE_COLLECTION,
 	}
 }
@@ -103,6 +111,7 @@ pub fn free_licenses(source: &str) -> Value {
 			"id": "free",
 			"label": "Flux fournis par la source MovieBox locale"
 		}]),
+		other if open::resolve_source(other).is_some() => open::licenses(other),
 		_ => json!(
 			ARCHIVE_LICENSES
 				.iter()
@@ -115,7 +124,7 @@ pub fn free_licenses(source: &str) -> Value {
 pub fn resolve_license(source: &str, value: Option<&str>) -> &'static str {
 	if source == "archive" {
 		archive::resolve_archive_license(value).0
-	} else if source == "commons" || source == "internal" {
+	} else if source == "commons" || source == "internal" || open::resolve_source(source).is_some() {
 		"free"
 	} else {
 		DEFAULT_ARCHIVE_LICENSE
@@ -142,6 +151,18 @@ pub async fn search_free(params: FreeSearchParams<'_>) -> Result<ArcJsonValue> {
 		"internal" => {
 			let result = internal::search(params.q, params.collection, params.page, params.rows).await?;
 			Ok(with_source(Arc::new(result), "internal"))
+		}
+		other if open::resolve_source(other).is_some() => {
+			let result = open::search(open::OpenSearchParams {
+				source: other,
+				q: params.q,
+				collection: params.collection,
+				page: params.page,
+				rows: params.rows,
+				sort: params.sort,
+			})
+			.await?;
+			Ok(with_source(result, other))
 		}
 		_ => {
 			let result = search_archive_inner(params).await?;
@@ -199,7 +220,9 @@ pub async fn get_free_title(identifier: &str) -> Result<Value> {
 }
 
 pub async fn get_free_title_from(identifier: &str, media_type: Option<&str>) -> Result<Value> {
-	if commons::is_commons_id(identifier) {
+	if open::is_open_id(identifier) {
+		open::get_title(identifier).await
+	} else if commons::is_commons_id(identifier) {
 		commons::get_commons_title(identifier).await
 	} else if identifier.starts_with(internal::ID_PREFIX) || media_type == Some("internal") {
 		let id = identifier
@@ -213,7 +236,9 @@ pub async fn get_free_title_from(identifier: &str, media_type: Option<&str>) -> 
 
 /// Validation d'un fichier à télécharger, quel que soit le fournisseur.
 pub async fn get_free_file(source_id: &str, file_name: &str) -> Result<Value> {
-	if commons::is_commons_id(source_id) {
+	if open::is_open_id(source_id) {
+		open::get_file(source_id, file_name).await
+	} else if commons::is_commons_id(source_id) {
 		commons::get_commons_file(source_id, file_name).await
 	} else if source_id.starts_with(internal::ID_PREFIX) {
 		let rest = &source_id[internal::ID_PREFIX.len()..];
@@ -229,7 +254,9 @@ pub async fn get_free_file(source_id: &str, file_name: &str) -> Result<Value> {
 
 /// URL distante d'un fichier déjà validé (reprise du téléchargement).
 pub fn free_remote_url(source_id: &str, file_name: &str) -> Option<String> {
-	if commons::is_commons_id(source_id) {
+	if open::is_open_id(source_id) {
+		None
+	} else if commons::is_commons_id(source_id) {
 		commons::commons_remote_url(source_id, file_name)
 	} else if source_id.starts_with(internal::ID_PREFIX) {
 		None
@@ -245,7 +272,9 @@ pub fn free_remote_url(source_id: &str, file_name: &str) -> Option<String> {
 
 /// Libellé du fournisseur d'un identifiant (messages d'erreur et interface).
 pub fn free_source_label(source_id: &str) -> &'static str {
-	if commons::is_commons_id(source_id) {
+	if open::is_open_id(source_id) {
+		open::label(source_id)
+	} else if commons::is_commons_id(source_id) {
 		"Wikimedia Commons"
 	} else if source_id.starts_with(internal::ID_PREFIX) {
 		"MovieBox (source principale)"

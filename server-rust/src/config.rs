@@ -46,6 +46,16 @@ pub struct Config {
 	/// API moviebox-internal-api (source de vidéos supplémentaire).
 	pub internal_api_url: String,
 	pub internal_api_enabled: bool,
+	/// NASA Image & Video Library (vidéos du domaine public).
+	pub nasa_api_url: String,
+	/// Autres catalogues libres (clés facultatives : source masquée sans clé).
+	pub europeana_api_url: String,
+	pub europeana_api_key: String,
+	pub pexels_api_key: String,
+	pub pixabay_api_key: String,
+	/// Library of Congress : API JSON parfois protégée par Cloudflare.
+	pub loc_api_url: String,
+	pub loc_api_enabled: bool,
 }
 
 fn read_env_file(path: &PathBuf) -> HashMap<String, String> {
@@ -205,6 +215,34 @@ fn from_env() -> Config {
 			.trim_end_matches('/')
 			.to_string(),
 		internal_api_enabled: internal_enabled,
+		nasa_api_url: env_value(
+			&file_env,
+			"NASA_API_URL",
+			"https://images-api.nasa.gov",
+		)
+		.trim_end_matches('/')
+		.to_string(),
+		europeana_api_url: env_value(
+			&file_env,
+			"EUROPEANA_API_URL",
+			"https://api.europeana.eu",
+		)
+		.trim_end_matches('/')
+		.to_string(),
+		europeana_api_key: env_value(&file_env, "EUROPEANA_API_KEY", ""),
+		pexels_api_key: env_value(&file_env, "PEXELS_API_KEY", ""),
+		pixabay_api_key: env_value(&file_env, "PIXABAY_API_KEY", ""),
+		loc_api_url: env_value(&file_env, "LOC_API_URL", "https://www.loc.gov")
+			.trim_end_matches('/')
+			.to_string(),
+		loc_api_enabled: match env_value(&file_env, "LOC_API_ENABLED", "false")
+			.trim()
+			.to_ascii_lowercase()
+			.as_str()
+		{
+			"true" | "1" | "yes" | "on" => true,
+			_ => false,
+		},
 		root_dir,
 	}
 }
