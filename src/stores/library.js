@@ -52,16 +52,20 @@ watch(
 const favorites = computed(() => state.value.favorites);
 const history = computed(() => state.value.history);
 
+// Set recalculé uniquement quand les favoris changent : les cartes d'une
+// longue liste ne relancent plus un parcours O(n) à chaque rendu.
+const favoriteIds = computed(() => new Set(state.value.favorites.map((entry) => entry.id)));
+
 const isFavorite = (item) => {
 	if (!item?.id) return false;
-	return state.value.favorites.some((entry) => entry.id === item.id);
+	return favoriteIds.value.has(item.id);
 };
 
 const toggleFavorite = (item) => {
 	const entry = toLibraryItem(item);
 	if (!entry) return false;
 
-	const alreadySaved = state.value.favorites.some((saved) => saved.id === entry.id);
+	const alreadySaved = favoriteIds.value.has(entry.id);
 	state.value = {
 		...state.value,
 		favorites: alreadySaved

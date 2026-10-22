@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import AppIcon from "./AppIcon.vue";
 import { detailRoute, isFree, isSeriesTitle, mediaTypeLabel, seasonCountOf, watchRoute } from "../util/media";
 import { formatRuntime } from "../util/format";
+import { isLowPerformance } from "../util/perf";
 import { useLibrary } from "../stores/library";
 import { toast } from "../stores/toast";
 
@@ -11,7 +12,10 @@ const props = defineProps({
 });
 
 const { isFavorite, toggleFavorite } = useLibrary();
+const root = ref(null);
 const index = ref(0);
+const sectionVisible = ref(true);
+const documentVisible = ref(true);
 const active = computed(() => props.items[index.value] || null);
 const activeFree = computed(() => isFree(active.value));
 const activeSaved = computed(() => (active.value ? isFavorite(active.value) : false));
@@ -33,6 +37,41 @@ const meta = computed(() => {
 	].filter(Boolean);
 });
 
+/**
+ * Ne charge que les backdrops proches du slide actif. Afficher les 8 images
+ * plein écran en même temps coûte plusieurs dizaines de Mo de mémoire vidéo.
+ */
+const shouldLoad = (itemIndex) => {
+	const length = props.items.length;
+	if (!length) return false;
+	const distance = Math.min(
+		Math.abs(itemIndex - index.value),
+		length - Math.abs(itemIndex - index.value),
+	);
+	return distance <= (isLowPerformance.value ? 1 : 2);
+};
+
+const imageOf = (item) =>
+	isLowPerformance.value
+		? item.backdropMobile || item.backdrop
+		: item.backdrop;
+
+const srcsetOf = (item) => {
+	const candidates = [
+		[item.backdropMobile, "780w"],
+		[item.backdrop, "1280w"],
+	].filter(([url]) => Boolean(url));
+	const seen = new Set();
+	return candidates
+		.filter(([url]) => {
+			if (seen.has(url)) return false;
+			seen.add(url);
+			return true;
+		})
+		.map(([url, descriptor]) => `${url} ${descriptor}`)
+		.join(", ");
+};
+
 let timer = null;
 const stop = () => {
 	if (timer) clearInterval(timer);
@@ -46,7 +85,14 @@ const next = () => {
 
 const start = () => {
 	stop();
-	if (props.items.length > 1) timer = setInterval(next, 8000);
+	if (props.items.length > 1 && sectionVisible.value && documentVisible.value) {
+		timer = setInterval(next, 8000);
+	}
+};
+
+const onVisibilityChange = () => {
+	documentVisible.value = !document.hidden;
+	start();
 };
 
 const goTo = (target) => {
@@ -89,13 +135,37 @@ watch(
 	},
 );
 
-onMounted(start);
-onBeforeUnmount(stop);
+let observer = null;
+
+onMounted(() => {
+	documentVisible.value = !document.hidden;
+	document.addEventListener("visibilitychange", onVisibilityChange);
+
+	if (typeof IntersectionObserver !== "undefined" && root.value) {
+		observer = new IntersectionObserver(
+			(entries) => {
+				sectionVisible.value = entries.some((entry) => entry.isIntersecting);
+				start();
+			},
+			{ threshold: 0.15 },
+		);
+		observer.observe(root.value);
+	}
+
+	start();
+});
+
+onBeforeUnmount(() => {
+	stop();
+	observer?.disconnect();
+	document.removeEventListener("visibilitychange", onVisibilityChange);
+});
 </script>
 
 <template>
 	<section
 		v-if="props.items.length"
+		ref="root"
 		class="group relative isolate h-[58vh] max-h-[620px] min-h-[360px] w-full overflow-hidden bg-inkDeep md:h-[64vh]"
 		@touchstart.passive="onTouchStart"
 		@touchend.passive="onTouchEnd"
@@ -106,11 +176,20 @@ onBeforeUnmount(stop);
 			class="absolute inset-0 transition-opacity duration-700 ease-out"
 			:class="itemIndex === index ? 'opacity-100' : 'opacity-0'"
 		>
-			<div
-				class="h-full w-full bg-cover bg-center"
+			<img
+				v-if="shouldLoad(itemIndex) && imageOf(item)"
+				:src="imageOf(item)"
+				:srcset="isLowPerformance ? undefined : srcsetOf(item) || undefined"
+				sizes="100vw"
+				:alt="item.title ? `Affiche de ${item.title}` : ''"
+				width="1280"
+				height="720"
+				:loading="itemIndex === index ? 'eager' : 'lazy'"
+				:fetchpriority="itemIndex === index ? 'high' : 'auto'"
+				decoding="async"
+				class="h-full w-full object-cover"
 				:class="itemIndex === index ? 'animate-kenburns' : ''"
-				:style="item.backdrop ? { backgroundImage: `url(${item.backdrop})` } : {}"
-			></div>
+			/>
 		</div>
 
 		<div class="absolute inset-0 bg-hero-gradient"></div>

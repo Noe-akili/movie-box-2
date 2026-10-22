@@ -204,6 +204,13 @@ http.interceptors.response.use(
 	},
 	(error) => {
 		endRequest();
+
+		// Requête annulée volontairement (filtre/recherche changés) : on ne doit
+		// pas afficher une erreur réseau à l'utilisateur.
+		if (axios.isCancel(error) || error.code === "ERR_CANCELED" || error.name === "CanceledError") {
+			return Promise.reject(Object.assign(new Error("Requête annulée"), { canceled: true }));
+		}
+
 		const status = error.response?.status;
 		const isTimeout = error.code === "ECONNABORTED" || /timeout/i.test(error.message || "");
 		const message =
@@ -218,17 +225,21 @@ http.interceptors.response.use(
 	},
 );
 
-export const fetchHome = (params) => http.get("/home", { params });
-export const fetchGenres = (type = "movie") => http.get("/genres", { params: { type } });
-export const searchTitles = (params) => http.get("/search", { params });
-export const fetchDiscover = (mediaType, params) => http.get(`/discover/${mediaType}`, { params });
-export const fetchFreeTitles = (params) => http.get("/free", { params });
-export const fetchTitle = (mediaType, id) =>
-	http.get(`/title/${mediaType}/${encodeURIComponent(id)}`);
-export const fetchSeason = (tvId, seasonNumber) => http.get(`/title/tv/${tvId}/season/${seasonNumber}`);
-export const fetchInternalStreams = (id, params) => http.get(`/internal/stream/${encodeURIComponent(id)}`, { params });
-export const fetchLegalInfo = () => http.get("/legal");
-export const fetchHealth = () => http.get("/health");
+export const fetchHome = (params, config = {}) => http.get("/home", { ...config, params });
+export const fetchGenres = (type = "movie", config = {}) =>
+	http.get("/genres", { ...config, params: { type } });
+export const searchTitles = (params, config = {}) => http.get("/search", { ...config, params });
+export const fetchDiscover = (mediaType, params, config = {}) =>
+	http.get(`/discover/${mediaType}`, { ...config, params });
+export const fetchFreeTitles = (params, config = {}) => http.get("/free", { ...config, params });
+export const fetchTitle = (mediaType, id, config = {}) =>
+	http.get(`/title/${mediaType}/${encodeURIComponent(id)}`, config);
+export const fetchSeason = (tvId, seasonNumber, config = {}) =>
+	http.get(`/title/tv/${tvId}/season/${seasonNumber}`, config);
+export const fetchInternalStreams = (id, params, config = {}) =>
+	http.get(`/internal/stream/${encodeURIComponent(id)}`, { ...config, params });
+export const fetchLegalInfo = (config = {}) => http.get("/legal", config);
+export const fetchHealth = (config = {}) => http.get("/health", config);
 
 /** Vrai dans la WebView Tauri (l'IPC est alors disponible). */
 export const isTauriRuntime = isTauri;

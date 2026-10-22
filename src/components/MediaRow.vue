@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import AppIcon from "./AppIcon.vue";
 import PosterCard from "./PosterCard.vue";
+import { mediaKey } from "../util/media";
 
 const props = defineProps({
 	title: { type: String, default: "" },
@@ -12,6 +13,11 @@ const props = defineProps({
 });
 
 const scroller = ref(null);
+
+const keyFor = (item) => {
+	const key = mediaKey(item) ?? item?.id ?? item?.title;
+	return `${item?.source || item?.mediaType || "x"}:${key}`;
+};
 
 const scrollBy = (direction) => {
 	const element = scroller.value;
@@ -41,8 +47,12 @@ const scrollBy = (direction) => {
 
 		<div class="group relative">
 			<div ref="scroller" class="rail rail-fade px-4 md:px-6 lg:px-8">
-				<div v-for="(item, index) in props.items" :key="item.id" class="rail-item">
-					<PosterCard :item="item" :rank="props.ranked ? index + 1 : null" />
+				<div v-for="(item, index) in props.items" :key="keyFor(item)" class="rail-item">
+					<PosterCard
+						:item="item"
+						:rank="props.ranked ? index + 1 : null"
+						sizes="(max-width: 512px) 112px, (max-width: 767px) 128px, (max-width: 1199px) 142px, 160px"
+					/>
 				</div>
 			</div>
 

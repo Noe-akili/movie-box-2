@@ -60,13 +60,35 @@ const refresh = async ({ silent = false } = {}) => {
 	}
 };
 
-/** Boucle adaptative : 1,2 s pendant un transfert, 8 s au repos. */
+/**
+ * Boucle adaptative : 1,2 s pendant un transfert, 30 s au repos. Aucune requête
+ * quand l'app est en arrière-plan : sur un téléphone ancien, le polling inutile
+ * réveille le CPU et vide la batterie.
+ */
 const schedule = () => {
 	window.clearTimeout(timer);
+	if (typeof document !== "undefined" && document.hidden) {
+		timer = null;
+		return;
+	}
 	timer = window.setTimeout(async () => {
-		await refresh({ silent: true });
+		if (!document.hidden) await refresh({ silent: true });
 		schedule();
-	}, hasActive.value ? 1200 : 8000);
+	}, hasActive.value ? 1200 : 30000);
+};
+
+let visibilityBound = false;
+const bindVisibility = () => {
+	if (visibilityBound || typeof document === "undefined") return;
+	visibilityBound = true;
+	document.addEventListener("visibilitychange", () => {
+		if (document.hidden) {
+			window.clearTimeout(timer);
+			timer = null;
+		} else {
+			refresh({ silent: true }).finally(schedule);
+		}
+	});
 };
 
 const upsert = (entry) => {
@@ -109,7 +131,15 @@ const remove = async (id) => {
 export const ensureDownloadsPolling = () => {
 	if (started) return;
 	started = true;
-	refresh({ silent: true }).finally(schedule);
+	bindVisibility();
+
+	// Premier appel différé : le démarrage de l'app reste réactif sur mobile.
+	const kickoff = () => refresh({ silent: true }).finally(schedule);
+	if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+		window.requestIdleCallback(kickoff, { timeout: 4000 });
+	} else {
+		window.setTimeout(kickoff, 1500);
+	}
 };
 
 export const useDownloads = () => ({

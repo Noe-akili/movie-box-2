@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import App from "./App.vue";
 import router from "./router";
+import { canPrefetchRoutes, initPerformance } from "./util/perf";
 import "./index.css";
 
 /**
@@ -13,6 +14,21 @@ import "./index.css";
  * On interroge Tauri pour connaître cette origine avant de monter l'app, afin
  * que les balises `<video>` visent la bonne.
  */
+/**
+ * Sur le web, l'IPC Tauri n'arrivera jamais : attendre 3 s avant de monter
+ * l'application ne servait qu'à afficher l'écran d'ouverture plus longtemps.
+ * On réserve l'attente longue aux WebView Tauri (dont l'injection peut être
+ * différée sur Android).
+ */
+function looksLikeTauriRuntime() {
+	if (typeof window === "undefined" || typeof location === "undefined") return false;
+	return (
+		location.protocol === "tauri:" ||
+		/tauri/i.test(location.hostname || "") ||
+		/tauri/i.test(navigator.userAgent || "")
+	);
+}
+
 async function waitForTauri(timeoutMs = 3000) {
 	const start = Date.now();
 	while (Date.now() - start < timeoutMs) {
@@ -63,7 +79,21 @@ function applySafeAreaInsets() {
 }
 
 async function bootstrap() {
-	const tauri = await waitForTauri();
+	// Profil appareil avant tout rendu : la feuille de style et les composants
+	// savent immédiatement s'ils doivent couper les effets coûteux.
+	initPerformance();
+
+	// Injection déjà présente (Tauri bureau, `withGlobalTauri`) : aucun délai.
+	// Web : aucun délai non plus. Android différé : on laisse sa chance à l'IPC.
+	const injected =
+		window.__TAURI__?.core?.invoke ||
+		window.__TAURI__?.invoke ||
+		window.__TAURI_INTERNALS__?.invoke;
+	const tauri = injected
+		? window.__TAURI__ ?? {}
+		: looksLikeTauriRuntime()
+			? await waitForTauri(3000)
+			: null;
 	const invoke =
 		tauri?.core?.invoke ||
 		tauri?.invoke ||
@@ -94,7 +124,7 @@ async function bootstrap() {
  * ou la lecture est quasi instantanée, sans retarder le premier rendu.
  */
 function prefetchCommonRoutes() {
-	if (typeof window === "undefined") return;
+	if (typeof window === "undefined" || !canPrefetchRoutes()) return;
 	const load = () =>
 		Promise.allSettled([
 			import("./pages/FreePage.vue"),

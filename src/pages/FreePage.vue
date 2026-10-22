@@ -1,12 +1,14 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { fetchFreeTitles } from "../api/client";
+import { cacheGet, cacheSet } from "../api/cache";
 import { useInfiniteScroll } from "../composables/useInfiniteScroll";
 import AppIcon from "../components/AppIcon.vue";
 import EmptyState from "../components/EmptyState.vue";
 import MediaGrid from "../components/MediaGrid.vue";
 import SkeletonRail from "../components/SkeletonRail.vue";
+import { isLowPerformance, rowsPerPage } from "../util/perf";
 
 const router = useRouter();
 
@@ -78,37 +80,92 @@ const syncQuery = () => {
 	});
 };
 
+let controller = null;
+let requestSeq = 0;
+
+const itemKey = (item) =>
+	`${item?.source || item?.mediaType || "x"}:${item?.id ?? item?.archiveId ?? item?.title}`;
+
+const maxItems = () => (isLowPerformance.value ? 480 : 900);
+
+const mergeItems = (base, incoming) => {
+	const seen = new Set(base.map(itemKey));
+	const next = base.slice();
+	for (const item of incoming) {
+		const key = itemKey(item);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		next.push(item);
+	}
+	return next;
+};
+
+const pageKey = (targetPage) =>
+	`free:${source.value}:${collection.value}:${sort.value}:${search.value}:${targetPage}:${rowsPerPage()}`;
+
+const applyPage = (data, reset) => {
+	const incoming = Array.isArray(data.items) ? data.items : [];
+	const nextItems = reset ? incoming : mergeItems(items.value, incoming);
+
+	items.value = nextItems.slice(0, maxItems());
+	page.value = data.page;
+	hasMore.value = Boolean(data.hasMore) && nextItems.length < maxItems();
+	total.value = data.total;
+	collections.value = data.collections?.length ? data.collections : FALLBACK_COLLECTIONS;
+	if (data.sources?.length) sources.value = data.sources;
+	errorMessage.value = null;
+};
+
 const load = async ({ reset }) => {
+	const targetPage = reset ? 1 : page.value + 1;
+
+	// Une nouvelle requête remplace la précédente : inutile de laisser courir
+	// une réponse devenue obsolète (source ou recherche changée).
+	controller?.abort();
+	controller = new AbortController();
+	const seq = ++requestSeq;
+	const key = pageKey(targetPage);
+	const cached = cacheGet(key);
+
 	if (reset) {
-		isLoading.value = true;
+		isLoading.value = !cached;
 		items.value = [];
 		page.value = 1;
+		if (cached) applyPage(cached, true);
 	} else {
 		isLoadingMore.value = true;
 	}
 
-	try {
-		const data = await fetchFreeTitles({
-			page: reset ? 1 : page.value + 1,
-			source: source.value,
-			collection: collection.value,
-			sort: sort.value,
-			q: search.value || undefined,
-			rows: 30,
-		});
-
-		items.value = reset ? data.items : [...items.value, ...data.items];
-		page.value = data.page;
-		hasMore.value = data.hasMore;
-		total.value = data.total;
-		collections.value = data.collections?.length ? data.collections : FALLBACK_COLLECTIONS;
-		if (data.sources?.length) sources.value = data.sources;
-		errorMessage.value = null;
-	} catch (error) {
-		errorMessage.value = error.message;
-	} finally {
+	if (cached) {
 		isLoading.value = false;
 		isLoadingMore.value = false;
+		return;
+	}
+
+	try {
+		const data = await fetchFreeTitles(
+			{
+				page: targetPage,
+				source: source.value,
+				collection: collection.value,
+				sort: sort.value,
+				q: search.value || undefined,
+				rows: rowsPerPage(),
+			},
+			{ signal: controller.signal },
+		);
+
+		if (seq !== requestSeq) return;
+		cacheSet(key, data, 120_000);
+		applyPage(data, reset);
+	} catch (error) {
+		if (error.canceled || seq !== requestSeq) return;
+		errorMessage.value = error.message;
+	} finally {
+		if (seq === requestSeq) {
+			isLoading.value = false;
+			isLoadingMore.value = false;
+		}
 	}
 };
 
@@ -146,6 +203,7 @@ const onSearchInput = () => {
 };
 
 onMounted(() => load({ reset: true }));
+onBeforeUnmount(() => controller?.abort());
 </script>
 
 

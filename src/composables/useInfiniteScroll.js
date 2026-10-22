@@ -8,8 +8,11 @@
  * chargement (squelette puis résultats), on l'observe dès qu'il apparaît.
  */
 import { onBeforeUnmount, ref, watch } from "vue";
+import { infiniteRootMargin } from "../util/perf";
 
-export const useInfiniteScroll = (onLoadMore, { enabled, rootMargin = "600px" } = {}) => {
+export const useInfiniteScroll = (onLoadMore, { enabled, rootMargin } = {}) => {
+	// Marge réduite sur appareil faible : on charge moins de contenu hors écran.
+	const margin = rootMargin ?? infiniteRootMargin();
 	const sentinel = ref(null);
 	const isLoading = ref(false);
 	let observer = null;
@@ -32,7 +35,7 @@ export const useInfiniteScroll = (onLoadMore, { enabled, rootMargin = "600px" } 
 			(entries) => {
 				if (entries.some((entry) => entry.isIntersecting)) run();
 			},
-			{ rootMargin: `${rootMargin} 0px` },
+			{ rootMargin: `${margin} 0px` },
 		);
 	};
 

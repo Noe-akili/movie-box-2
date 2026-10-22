@@ -1,7 +1,8 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { searchTitles } from "../api/client";
+import { cacheGet, cacheSet } from "../api/cache";
 import { useInfiniteScroll } from "../composables/useInfiniteScroll";
 import AppIcon from "../components/AppIcon.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -31,10 +32,13 @@ const page = ref(1);
 const hasMore = ref(false);
 
 let debounce = null;
+let controller = null;
+let requestSeq = 0;
 
 const run = async (term, { remember = false, next = false } = {}) => {
 	const value = String(term || "").trim();
 	if (value.length < 2) {
+		controller?.abort();
 		results.value = [];
 		free.value = { items: [], total: 0 };
 		searched.value = false;
@@ -42,31 +46,64 @@ const run = async (term, { remember = false, next = false } = {}) => {
 		return;
 	}
 
+	const nextPage = next ? page.value + 1 : 1;
+	const key = `search:${value}:${activeTab.value}:${nextPage}`;
+	const cached = cacheGet(key);
+
+	// Une nouvelle recherche annule la précédente : les réponses obsolètes ne
+	// doivent ni écraser l'affichage ni relancer un rendu inutile.
+	controller?.abort();
+	controller = new AbortController();
+	const seq = ++requestSeq;
+
 	// Premier chargement : squelette plein écran. Suite : indicateur discret.
 	if (next) isLoadingMore.value = true;
-	else isLoading.value = true;
+	else isLoading.value = !cached;
 	errorMessage.value = null;
 
-	try {
-		const nextPage = next ? page.value + 1 : 1;
-		const data = await searchTitles({ q: value, type: activeTab.value, page: nextPage });
-		const incoming = data.results || [];
-
-		results.value = next ? [...results.value, ...incoming] : incoming;
-		page.value = nextPage;
-		hasMore.value = incoming.length > 0;
-
-		if (!next) {
-			free.value = data.free || { items: [], total: 0 };
-			searched.value = true;
-			if (remember) push(value);
-			router.replace({ query: { q: value } });
-		}
-	} catch (error) {
-		errorMessage.value = error.message;
-	} finally {
+	if (cached) {
+		applySearch(cached, value, { next, remember });
 		isLoading.value = false;
 		isLoadingMore.value = false;
+		return;
+	}
+
+	try {
+		const data = await searchTitles(
+			{ q: value, type: activeTab.value, page: nextPage },
+			{ signal: controller.signal },
+		);
+		if (seq !== requestSeq) return;
+
+		cacheSet(key, data, 60_000);
+		applySearch(data, value, { next, remember });
+	} catch (error) {
+		if (error.canceled || seq !== requestSeq) return;
+		errorMessage.value = error.message;
+	} finally {
+		if (seq === requestSeq) {
+			isLoading.value = false;
+			isLoadingMore.value = false;
+		}
+	}
+};
+
+const applySearch = (data, value, { next, remember }) => {
+	const incoming = data.results || [];
+	const nextPage = next ? page.value + 1 : 1;
+
+	results.value = next ? [...results.value, ...incoming] : incoming;
+	page.value = nextPage;
+	// Le backend ne renvoie pas toujours `hasMore` sur /search : on se base sur
+	// la taille de page, avec un plafond pour éviter une boucle sans fin.
+	const pageSize = activeTab.value === "all" ? 40 : 20;
+	hasMore.value = Boolean(data.hasMore ?? incoming.length >= pageSize) && nextPage < 500;
+
+	if (!next) {
+		free.value = data.free || { items: [], total: 0 };
+		searched.value = true;
+		if (remember) push(value);
+		router.replace({ query: { q: value } });
 	}
 };
 
@@ -102,6 +139,11 @@ onMounted(() => {
 		query.value = initial;
 		run(initial);
 	}
+});
+
+onBeforeUnmount(() => {
+	window.clearTimeout(debounce);
+	controller?.abort();
 });
 </script>
 

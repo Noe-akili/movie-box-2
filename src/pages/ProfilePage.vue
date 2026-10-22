@@ -56,6 +56,11 @@ const onRegion = (event) => {
 	toast.success("Région des offres légales mise à jour");
 };
 
+const onPerformance = (event) => {
+	updateSettings({ performanceMode: event.target.value });
+	toast.success("Mode de performance mis à jour");
+};
+
 const checkServer = async () => {
 	healthError.value = null;
 
@@ -164,9 +169,23 @@ onUnmounted(() => {
 					</select>
 				</label>
 
+				<label class="block space-y-1.5">
+					<span class="text-xs uppercase tracking-wide text-white/40">Mode de performance</span>
+					<select
+						:value="settings.performanceMode || 'auto'"
+						class="w-full rounded-xl border border-inkLine bg-ink px-3 py-2.5 text-sm text-white focus:border-brand focus:outline-none"
+						@change="onPerformance"
+					>
+						<option value="auto">Automatique (recommandé)</option>
+						<option value="low">Léger — téléphones anciens</option>
+						<option value="high">Complet — appareils récents</option>
+					</select>
+				</label>
+
 				<p class="text-[11px] text-white/35">
 					La langue change les titres, synopsis et genres affichés. La région change les plateformes légales
-					proposées (gratuit avec publicité, abonnement, location, achat).
+					proposées (gratuit avec publicité, abonnement, location, achat). Le mode léger réduit les effets,
+					la résolution des images et la mémoire utilisée.
 				</p>
 			</div>
 

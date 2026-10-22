@@ -166,6 +166,18 @@ const nextLocalEpisode = computed(() => {
 	return siblings[(index + 1) % siblings.length];
 });
 
+/** Épisode suivant de la série affichée (retour au premier en fin de liste). */
+const nextEpisodeIndex = computed(() => {
+	if (!isSeries.value || episodes.value.length < 2) return -1;
+	return (selectedEpisode.value + 1) % episodes.value.length;
+});
+const nextSeriesEpisode = computed(() => episodes.value[nextEpisodeIndex.value] || null);
+const episodeTitle = (episode) =>
+	episode?.name ||
+	episode?.title ||
+	episode?.label ||
+	(episode?.number ? `Épisode ${episode.number}` : "Épisode");
+
 const relatedHref = computed(() => ({
 	path: "/free",
 	query: { q: title.value?.title || "" },
@@ -256,8 +268,28 @@ const selectEpisodeFromQuery = () => {
 	const wanted = Number(route.query.episode);
 	if (!Number.isFinite(wanted)) return;
 
-	const index = episodes.value.findIndex((episode) => episode.number === wanted);
-	if (index >= 0) selectEpisode(index);
+	const rawSeason = route.query.season;
+	const hasSeason = rawSeason !== undefined && rawSeason !== "" && Number.isFinite(Number(rawSeason));
+	const wantedSeason = Number(rawSeason);
+
+	const index = episodes.value.findIndex((episode) => {
+		if (episode.number !== wanted) return false;
+		if (!hasSeason) return true;
+		return Number(episode.season) === wantedSeason;
+	});
+	const hasStreams = Boolean(episodes.value[index]?.streams?.length);
+	if (index >= 0 && (index !== selectedEpisode.value || !hasStreams)) selectEpisode(index);
+};
+
+/** Passe à l'épisode suivant et lance la lecture immédiatement. */
+const playNextEpisode = () => {
+	if (nextEpisodeIndex.value >= 0) selectEpisode(nextEpisodeIndex.value);
+};
+
+/** Depuis la liste sous le titre : lance l'épisode et remonte sur le lecteur. */
+const playEpisode = async (index) => {
+	await selectEpisode(index);
+	document.getElementById("watch-player")?.scrollIntoView({ block: "start" });
 };
 
 const load = async () => {
@@ -310,7 +342,7 @@ const onToggleFavorite = () => {
 
 onMounted(load);
 watch(() => [props.mediaType, props.id], load);
-watch(() => route.query.episode, selectEpisodeFromQuery);
+watch(() => [route.query.season, route.query.episode], selectEpisodeFromQuery);
 </script>
 
 <template>
@@ -333,17 +365,6 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 					}}
 				</p>
 			</div>
-			<!-- Épisode suivant de la série (fichiers déjà téléchargés) -->
-			<RouterLink
-				v-if="nextLocalEpisode"
-				:to="{ name: 'watch-local', params: { id: nextLocalEpisode.id } }"
-				class="btn btn-inverse h-9 shrink-0 px-3 text-xs"
-				:title="`Épisode suivant : ${nextLocalEpisode.episodeName || nextLocalEpisode.title}`"
-			>
-				<span>Épisode suivant</span>
-				<AppIcon name="chevronRight" :size="15" />
-			</RouterLink>
-
 			<button
 				v-if="title"
 				type="button"
@@ -373,11 +394,11 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 		/>
 
 		<template v-else-if="title">
-			<div class="w-full bg-black">
+			<div id="watch-player" class="w-full scroll-mt-20 bg-black">
 				<div class="relative mx-auto aspect-video w-full max-w-[1800px]">
 					<VideoPlayer
 						v-if="free && currentStream && !useEmbed"
-						:key="`${playerSource}:${playbackMode}`"
+						:key="`${playerId}:${playerSource}:${playbackMode}`"
 						:id="playerId"
 						:src="playerSource"
 						:poster="title.backdrop || title.poster"
@@ -424,6 +445,28 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 						{{ formatSize(localEntry.bytesTotal) }} — le téléchargement continue en arrière-plan
 					</div>
 
+					<!-- Épisode suivant : icône seule, en bas de la vidéo. -->
+					<RouterLink
+						v-if="nextLocalEpisode"
+						:to="{ name: 'watch-local', params: { id: nextLocalEpisode.id } }"
+						class="absolute bottom-20 right-4 z-30 grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/75 text-white shadow-lg transition-normal hover:bg-black/90"
+						:aria-label="`Épisode suivant : ${nextLocalEpisode.episodeName || nextLocalEpisode.title}`"
+						:title="`Épisode suivant : ${nextLocalEpisode.episodeName || nextLocalEpisode.title}`"
+					>
+						<AppIcon name="chevronRight" :size="22" />
+					</RouterLink>
+
+					<button
+						v-else-if="nextSeriesEpisode"
+						type="button"
+						class="absolute bottom-20 right-4 z-30 grid h-11 w-11 place-items-center rounded-full border border-white/20 bg-black/75 text-white shadow-lg transition-normal hover:bg-black/90"
+						:aria-label="`Épisode suivant : ${episodeTitle(nextSeriesEpisode)}`"
+						:title="`Épisode suivant : ${episodeTitle(nextSeriesEpisode)}`"
+						@click="playNextEpisode"
+					>
+						<AppIcon name="chevronRight" :size="22" />
+					</button>
+
 					<div
 						v-if="playbackError"
 						class="absolute inset-x-0 bottom-0 z-20 flex flex-wrap items-center justify-between gap-2 bg-black/85 px-4 py-3 text-xs text-white/80 backdrop-blur"
@@ -449,27 +492,6 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 					<button v-if="title.embedUrl" type="button" class="chip !py-1 text-xs" @click="useEmbed = !useEmbed">
 						{{ useEmbed ? "Utiliser le lecteur intégré" : "Utiliser le lecteur Internet Archive" }}
 					</button>
-				</div>
-
-				<div v-if="isSeries" class="space-y-2 rounded-xl border border-inkLine bg-inkCard/60 p-3">
-					<p class="text-xs text-white/55">
-						{{ episodes.length }} épisodes détectés dans cette série libre de droits<span v-if="currentEpisode">
-							— en cours : {{ currentEpisode.label }} · {{ currentEpisode.name }}</span
-						>
-					</p>
-					<div class="rail -mx-1 px-1">
-						<button
-							v-for="(episode, index) in episodes"
-							:key="`${episode.season}-${episode.number}`"
-							type="button"
-							class="chip"
-							:class="selectedEpisode === index ? 'chip-active' : ''"
-							:title="episode.name"
-							@click="selectEpisode(index)"
-						>
-							{{ episode.label }}
-						</button>
-					</div>
 				</div>
 
 				<div class="rail -mx-1 px-1">
@@ -505,6 +527,36 @@ watch(() => route.query.episode, selectEpisodeFromQuery);
 									.join(" • ")
 							}}
 						</p>
+
+						<!-- Autres épisodes de la série, juste sous le nom. Un clic lance
+						     immédiatement la lecture de l'épisode choisi. -->
+						<div v-if="isSeries" class="space-y-2 pt-2">
+							<div class="flex items-center justify-between gap-3">
+								<h3 class="text-sm font-semibold text-white/85">Épisodes</h3>
+								<span class="text-[11px] text-white/40">{{ episodes.length }} épisodes</span>
+							</div>
+							<div class="rail -mx-1 px-1">
+								<button
+									v-for="(episode, index) in episodes"
+									:key="`${episode.season}-${episode.number}`"
+									type="button"
+									class="rail-item surface w-44 p-2.5 text-left transition-normal hover:border-white/25"
+									:class="selectedEpisode === index ? 'border-brand/60 bg-brand/10' : ''"
+									:title="`Lire ${episode.label} — ${episodeTitle(episode)}`"
+									@click="playEpisode(index)"
+								>
+									<span class="block text-[11px] font-semibold text-brandSoft">{{ episode.label }}</span>
+									<span class="mt-0.5 line-clamp-2 block text-xs font-medium text-white/90">
+										{{ episodeTitle(episode) }}
+									</span>
+									<span class="mt-1 flex items-center gap-1 text-[10px] text-white/40">
+										<AppIcon name="play" :size="10" filled />
+										{{ selectedEpisode === index ? "En cours" : "Lire" }}
+									</span>
+								</button>
+							</div>
+						</div>
+
 						<p v-if="title.overview" class="text-sm leading-relaxed text-white/70">
 							{{ title.overview }}
 						</p>

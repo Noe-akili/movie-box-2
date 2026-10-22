@@ -1,11 +1,13 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { fetchDiscover, fetchGenres } from "../api/client";
+import { cacheGet, cacheSet } from "../api/cache";
 import { useInfiniteScroll } from "../composables/useInfiniteScroll";
 import EmptyState from "../components/EmptyState.vue";
 import MediaGrid from "../components/MediaGrid.vue";
 import SkeletonRail from "../components/SkeletonRail.vue";
+import { isLowPerformance } from "../util/perf";
 
 const props = defineProps({
 	mediaType: { type: String, default: "movie" },
@@ -61,32 +63,82 @@ const pageSubtitle = computed(() =>
 		: "Tout le cinéma mondial : Hollywood, Bollywood, Nollywood, France, Corée…",
 );
 
+let controller = null;
+let requestSeq = 0;
+
+const itemKey = (item) =>
+	`${item?.source || item?.mediaType || "x"}:${item?.id ?? item?.archiveId ?? item?.title}`;
+const maxItems = () => (isLowPerformance.value ? 480 : 1200);
+
+const mergeItems = (base, incoming) => {
+	const seen = new Set(base.map(itemKey));
+	const next = base.slice();
+	for (const item of incoming) {
+		const key = itemKey(item);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		next.push(item);
+	}
+	return next;
+};
+
 const load = async ({ reset }) => {
+	const targetPage = reset ? 1 : page.value + 1;
+	const key = `discover:${props.mediaType}:${filters.value.genre}:${filters.value.sort}:${filters.value.language}:${targetPage}`;
+
+	controller?.abort();
+	controller = new AbortController();
+	const seq = ++requestSeq;
+	const cached = cacheGet(key);
+
 	if (reset) {
-		isLoading.value = true;
+		isLoading.value = !cached;
 		items.value = [];
 		page.value = 1;
+		if (cached) {
+			items.value = cached.items || [];
+			page.value = cached.page;
+			hasMore.value = Boolean(cached.hasMore);
+			errorMessage.value = null;
+		}
 	} else {
 		isLoadingMore.value = true;
 	}
 
-	try {
-		const data = await fetchDiscover(props.mediaType, {
-			page: reset ? 1 : page.value + 1,
-			genre: filters.value.genre || undefined,
-			sort: filters.value.sort,
-			language: filters.value.language || undefined,
-		});
-
-		items.value = reset ? data.items : [...items.value, ...data.items];
-		page.value = data.page;
-		hasMore.value = data.hasMore;
-		errorMessage.value = null;
-	} catch (error) {
-		errorMessage.value = error.message;
-	} finally {
+	if (cached) {
 		isLoading.value = false;
 		isLoadingMore.value = false;
+		return;
+	}
+
+	try {
+		const data = await fetchDiscover(
+			props.mediaType,
+			{
+				page: targetPage,
+				genre: filters.value.genre || undefined,
+				sort: filters.value.sort,
+				language: filters.value.language || undefined,
+			},
+			{ signal: controller.signal },
+		);
+
+		if (seq !== requestSeq) return;
+		cacheSet(key, data, 60_000);
+
+		const nextItems = reset ? (data.items || []) : mergeItems(items.value, data.items || []);
+		items.value = nextItems.slice(0, maxItems());
+		page.value = data.page;
+		hasMore.value = Boolean(data.hasMore) && nextItems.length < maxItems();
+		errorMessage.value = null;
+	} catch (error) {
+		if (error.canceled || seq !== requestSeq) return;
+		errorMessage.value = error.message;
+	} finally {
+		if (seq === requestSeq) {
+			isLoading.value = false;
+			isLoadingMore.value = false;
+		}
 	}
 };
 
@@ -155,6 +207,8 @@ watch(
 		load({ reset: true });
 		loadGenres();
 	});
+
+	onBeforeUnmount(() => controller?.abort());
 </script>
 
 

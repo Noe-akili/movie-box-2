@@ -445,3 +445,61 @@
 		transform: none;
 	}
 }
+
+/*
+	Profil « faible RAM » (téléphones anciens) : on supprime les effets qui
+	créent des couches GPU et des decodages inutiles. Le profil est posé sur
+	<html data-perf="low"> par src/util/perf.js.
+*/
+html[data-perf="low"] [class*="backdrop-blur"] {
+	-webkit-backdrop-filter: none !important;
+	backdrop-filter: none !important;
+}
+
+html[data-perf="low"] body,
+html[data-perf="low"] .font-poppins {
+	font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html[data-perf="low"] .animate-kenburns,
+html[data-perf="low"] .animate-fadeUp,
+html[data-perf="low"] .animate-riseIn,
+html[data-perf="low"] .skeleton {
+	animation: none !important;
+}
+
+html[data-perf="low"] .skeleton {
+	background-color: #1a1b1f;
+	background-image: none;
+}
+
+html[data-perf="low"] .tab-left-enter-active,
+html[data-perf="low"] .tab-left-leave-active,
+html[data-perf="low"] .tab-right-enter-active,
+html[data-perf="low"] .tab-right-leave-active,
+html[data-perf="low"] .fade-up-enter-active,
+html[data-perf="low"] .fade-up-leave-active {
+	transition: opacity 0.12s ease;
+	will-change: auto;
+}
+
+html[data-perf="low"] .tab-left-enter-from,
+html[data-perf="low"] .tab-left-leave-to,
+html[data-perf="low"] .tab-right-enter-from,
+html[data-perf="low"] .tab-right-leave-to,
+html[data-perf="low"] .fade-up-enter-from,
+html[data-perf="low"] .fade-up-leave-to {
+	transform: none;
+}
+
+html[data-perf="low"] .shadow-hover,
+html[data-perf="low"] .shadow-poster {
+	box-shadow: none;
+}
+
+/* Rails horizontaux : les cartes hors écran ne sont pas rendues sur mobile
+   ancien (Chrome/WebView récents ; les autres ignorent simplement la règle). */
+html[data-perf="low"] .rail-item {
+	content-visibility: auto;
+	contain-intrinsic-size: 160px 300px;
+}

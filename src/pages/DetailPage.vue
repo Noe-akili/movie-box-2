@@ -65,6 +65,31 @@ const mainChips = computed(() => {
 	].filter(Boolean);
 });
 
+/** Lien de lecture directe d'un épisode (saison + numéro) dans le lecteur. */
+const episodeWatchRoute = (episode, fallbackSeason = null) => {
+	const number = episode?.number ?? episode?.episodeNumber;
+	const season = episode?.season ?? fallbackSeason;
+
+	return {
+		...watchRoute(title.value),
+		query: {
+			episode: number,
+			...(season !== null && season !== undefined ? { season } : {}),
+		},
+	};
+};
+
+const episodesSectionId = computed(() => {
+	if (archiveEpisodes.value.length) return "episodes";
+	if (title.value?.tmdbId && title.value?.seasons?.length) return "episodes-tmdb";
+	return null;
+});
+
+const scrollToEpisodes = () => {
+	const section = episodesSectionId.value;
+	if (section) document.getElementById(section)?.scrollIntoView({ block: "start" });
+};
+
 const episodeMeta = (episode) => {
 	const streams = episode.streams || [];
 	const best = streams[0] || {};
@@ -261,6 +286,16 @@ watch(
 									:initial-season="automaticSeason"
 								/>
 
+								<button
+									v-if="isSeries && episodesSectionId"
+									type="button"
+									class="btn btn-inverse px-4 py-3"
+									@click="scrollToEpisodes"
+								>
+									<AppIcon name="list" :size="18" />
+									<span>Épisodes</span>
+								</button>
+
 								<button type="button" class="btn btn-inverse px-4 py-3" @click="onToggleFavorite">
 									<AppIcon name="heart" :size="18" :filled="saved" />
 									<span>{{ saved ? "Dans Ma liste" : "Ma liste" }}</span>
@@ -390,18 +425,24 @@ watch(
 						:key="episode.label"
 						class="surface flex flex-wrap items-center gap-3 p-3 transition-normal hover:border-white/20"
 					>
-						<span class="badge bg-white/10 text-white/70">{{ episode.label }}</span>
+						<RouterLink
+							:to="episodeWatchRoute(episode)"
+							class="flex min-w-0 flex-1 items-center gap-3"
+							:aria-label="`Lire ${episode.label}`"
+						>
+							<span class="badge bg-white/10 text-white/70">{{ episode.label }}</span>
 
-						<div class="min-w-0 flex-1">
-							<h3 class="line-clamp-1 text-sm font-semibold text-white/90">
-								{{ episode.name || episode.title || episode.label }}
-							</h3>
-							<p class="text-[11px] text-white/40">{{ episodeMeta(episode) }}</p>
-						</div>
+							<span class="min-w-0 flex-1">
+								<span class="line-clamp-1 block text-sm font-semibold text-white/90">
+									{{ episode.name || episode.title || episode.label }}
+								</span>
+								<span class="block text-[11px] text-white/40">{{ episodeMeta(episode) }}</span>
+							</span>
+						</RouterLink>
 
 						<div class="flex items-center gap-2">
 							<RouterLink
-								:to="{ ...watchRoute(title), query: { episode: episode.number } }"
+								:to="episodeWatchRoute(episode)"
 								class="btn btn-inverse px-3 py-2 text-xs"
 							>
 								<AppIcon name="play" :size="14" filled />
@@ -422,7 +463,8 @@ watch(
 			<!-- Saisons et épisodes (séries TMDB) -->
 			<section
 				v-if="title.tmdbId && title.seasons?.length"
-				class="mx-auto max-w-[1800px] space-y-4 px-4 pt-10 md:px-6 lg:px-8"
+				id="episodes-tmdb"
+				class="mx-auto max-w-[1800px] scroll-mt-24 space-y-4 px-4 pt-10 md:px-6 lg:px-8"
 			>
 				<div class="flex items-end justify-between gap-4">
 					<h2 class="section-title">Épisodes</h2>
@@ -480,7 +522,7 @@ watch(
 							</p>
 						</div>
 						<RouterLink
-							:to="watchRoute(title)"
+							:to="episodeWatchRoute({ number: episode.episodeNumber }, selectedSeason)"
 							class="icon-btn h-9 w-9 self-center"
 							:aria-label="`Où regarder l'épisode ${episode.episodeNumber}`"
 						>

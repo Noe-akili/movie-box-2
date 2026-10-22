@@ -21,7 +21,9 @@ const emit = defineEmits(["remove-many"]);
 
 const { pause, retry, remove } = useDownloads();
 
-const expanded = ref(false);
+// Les épisodes sont visibles dès l'ouverture d'une série : le menu « … »
+// (et la vignette) permet seulement de les replier, pas de les découvrir.
+const expanded = ref(true);
 const confirmingMany = ref(false);
 const confirmingId = ref(null);
 const busyId = ref(null);

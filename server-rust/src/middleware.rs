@@ -128,6 +128,11 @@ pub async fn api_cache_control(req: Request, next: Next) -> Response {
 		|| path.starts_with("/api/transfer")
 	{
 		"no-store"
+	} else if path.starts_with("/api/free") {
+		// Pages de catalogue libre : contenu peu changeant, cache plus long.
+		"public, max-age=300"
+	} else if path.starts_with("/api/home") {
+		"public, max-age=120"
 	} else if path.starts_with("/api/") {
 		// Catalogue : cache court, suffisant pour absorber un rafraîchissement.
 		"public, max-age=60"

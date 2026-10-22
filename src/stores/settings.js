@@ -1,4 +1,5 @@
 import { ref, watch } from "vue";
+import { applyPerformanceMode } from "../util/perf";
 
 const STORAGE_KEY = "moviebox.settings.v1";
 
@@ -22,7 +23,13 @@ export const REGIONS = [
 	{ code: "MA", label: "Maroc" },
 ];
 
-const DEFAULTS = { language: "fr-FR", region: "FR", developer: false };
+const DEFAULTS = {
+	language: "fr-FR",
+	region: "FR",
+	developer: false,
+	// "auto" détecte les téléphones anciens, "low" force le mode léger.
+	performanceMode: "auto",
+};
 
 const readStored = () => {
 	try {
@@ -34,6 +41,10 @@ const readStored = () => {
 
 const settings = ref(readStored());
 
+// Le profil performance est appliqué dès le chargement des réglages (et à
+// chaque changement), avant même le premier rendu des pages.
+applyPerformanceMode(settings.value.performanceMode);
+
 watch(
 	settings,
 	(value) => {
@@ -42,6 +53,7 @@ watch(
 		} catch {
 			/* stockage indisponible (mode navigation privee) */
 		}
+		applyPerformanceMode(value.performanceMode);
 	},
 	{ deep: true },
 );

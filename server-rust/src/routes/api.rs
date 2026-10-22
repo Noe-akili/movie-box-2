@@ -321,10 +321,15 @@ enum HomeMsg {
 /// Page d'accueil : toutes les sources démarrent en même temps (budget global).
 async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 	let lang = lang_of(&params);
+	// `part=fast` : rails TMDB immédiatement. `part=extra` : catalogues libres
+	// chargés en second plan. Sans paramètre, comportement historique complet.
+	let part = param(&params, "part").unwrap_or("all");
+	let include_tmdb = part == "all" || part == "fast";
+	let include_slow = part == "all" || part == "extra";
 	let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<HomeMsg>();
 
 	// 1. Rails TMDB (chaque rail répond à son rythme, une erreur ne casse pas les suivants).
-	{
+	if include_tmdb {
 		let tx = tx.clone();
 		let lang = lang.clone();
 		tokio::spawn(async move {
@@ -353,7 +358,7 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 	}
 
 	// 2. Rails Archive.org (4 recherches simultanées maximum).
-	{
+	if include_slow {
 		let tx = tx.clone();
 		tokio::spawn(async move {
 			let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
@@ -390,7 +395,7 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 	}
 
 	// 3. Rail Wikimedia Commons.
-	{
+	if include_slow {
 		let tx = tx.clone();
 		tokio::spawn(async move {
 			let result = commons::search_commons(CommonsSearchParams {
@@ -412,7 +417,7 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 	}
 
 	// 4. Rails des catalogues libres supplémentaires (NASA, Blender, …).
-	{
+	if include_slow {
 		let tx = tx.clone();
 		tokio::spawn(async move {
 			let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(3));
@@ -466,7 +471,7 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 	}
 
 	// 5. Rail de la source interne (moviebox-internal-api).
-	{
+	if include_slow {
 		let tx = tx.clone();
 		tokio::spawn(async move {
 			let result = internal::home_cards().await.map_err(|_| ());
@@ -501,11 +506,12 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 			}
 		}
 
-		fn complete(&self) -> bool {
-			self.tmdb_count >= TMDB_RAILS.len()
-				&& self.archive.is_some()
-				&& self.common.is_some()
-				&& self.internal.is_some()
+		fn complete(&self, include_tmdb: bool, include_slow: bool) -> bool {
+			(!include_tmdb || self.tmdb_count >= TMDB_RAILS.len())
+				&& (!include_slow
+					|| (self.archive.is_some()
+						&& self.common.is_some()
+						&& self.internal.is_some()))
 		}
 	}
 
@@ -518,7 +524,7 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 	tokio::pin!(deadline);
 
 	loop {
-		if state.complete() {
+		if state.complete(include_tmdb, include_slow) {
 			break;
 		}
 		tokio::select! {
@@ -535,11 +541,11 @@ async fn home(Query(params): Query<Params>) -> Result<Json<Value>> {
 		state.apply(message);
 	}
 
-	let pending = (state.tmdb_count < TMDB_RAILS.len()) as i32
-		+ state.archive.is_none() as i32
-		+ state.common.is_none() as i32
-		+ state.open.is_none() as i32
-		+ state.internal.is_none() as i32;
+	let pending = ((include_tmdb && state.tmdb_count < TMDB_RAILS.len()) as i32)
+		+ ((include_slow && state.archive.is_none()) as i32)
+		+ ((include_slow && state.common.is_none()) as i32)
+		+ ((include_slow && state.open.is_none()) as i32)
+		+ ((include_slow && state.internal.is_none()) as i32);
 
 	let mut rails: Vec<Value> = Vec::new();
 	let mut hero: Vec<Value> = Vec::new();
@@ -1040,7 +1046,15 @@ async fn free_titles(Query(params): Query<Params>) -> Result<Json<Value>> {
 			"items": [],
 		})
 	} else {
-		free::search_free(search_params)
+		// Cache la page assemblée (et pas seulement l'appel fournisseur) : les
+		// retours arrière/avant sur les filtres ne relancent aucun traitement.
+		let cache_key = format!(
+			"free-page:{source}:{collection}:{license}:{q}:{page}:{rows}:{sort}"
+		);
+		cache()
+			.cached(&cache_key, config().ttl.short, || async {
+				free::search_free(search_params).await
+			})
 			.await
 			.map(|arc| (*arc).clone())
 			.unwrap_or_else(|_| {

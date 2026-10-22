@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { fetchHome } from "../api/client";
 import AppIcon from "../components/AppIcon.vue";
 import EmptyState from "../components/EmptyState.vue";
@@ -23,24 +23,67 @@ const hasMoreRails = computed(() => visibleRails.value < rails.value.length);
 const { history } = useLibrary();
 const settings = useSettings();
 
+let controller = null;
+
+const mergeRails = (base, incoming) => {
+	const seen = new Set(base.map((rail) => rail.id));
+	const next = base.slice();
+	for (const rail of incoming) {
+		if (!rail?.id || seen.has(rail.id)) continue;
+		seen.add(rail.id);
+		// Le catalogue interne reste le rail principal, comme avant le découpage.
+		if (rail.id === "internal-home") next.unshift(rail);
+		else next.push(rail);
+	}
+	return next;
+};
+
+/**
+ * Accueil en deux temps : les rails rapides (TMDB) s'affichent d'abord, puis
+ * les catalogues libres (Archive/Commons/Open/interne) arrivent en tâche de
+ * fond. Sur un réseau lent, l'utilisateur ne fixe plus un écran vide.
+ */
 const load = async () => {
+	controller?.abort();
+	const local = new AbortController();
+	controller = local;
+
 	isLoading.value = true;
 	errorMessage.value = null;
+	isPartial.value = false;
 
 	try {
-		const data = await fetchHome();
+		const data = await fetchHome({ part: "fast" }, { signal: local.signal });
+		if (local.signal.aborted) return;
 		hero.value = data.hero || [];
 		rails.value = data.rails || [];
 		visibleRails.value = RAILS_STEP;
 		isPartial.value = Boolean(data.partial);
 	} catch (error) {
+		if (error.canceled || local.signal.aborted) return;
 		errorMessage.value = error.message;
 	} finally {
-		isLoading.value = false;
+		if (!local.signal.aborted) isLoading.value = false;
+	}
+
+	// Les sources lentes ne bloquent jamais le premier rendu.
+	if (!local.signal.aborted) loadExtra(local.signal);
+};
+
+const loadExtra = async (signal) => {
+	try {
+		const data = await fetchHome({ part: "extra" }, { signal });
+		if (signal.aborted) return;
+		rails.value = mergeRails(rails.value, data.rails || []);
+		if (!hero.value.length && data.hero?.length) hero.value = data.hero;
+		if (data.partial) isPartial.value = true;
+	} catch (error) {
+		if (!error.canceled) isPartial.value = true;
 	}
 };
 
 onMounted(load);
+onBeforeUnmount(() => controller?.abort());
 watch(() => settings.value.language, load);
 </script>
 

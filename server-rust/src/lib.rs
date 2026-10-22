@@ -26,6 +26,7 @@ use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
 use serde_json::json;
+use tower_http::compression::CompressionLayer;
 use tower_http::services::ServeDir;
 
 use crate::config::config;
@@ -57,7 +58,11 @@ pub fn app(dist_dir: PathBuf) -> Router {
 		.layer(axum::middleware::from_fn(crate::middleware::rate_limit))
 		.layer(axum::middleware::from_fn(
 			crate::middleware::api_cache_control,
-		));
+		))
+		// Les réponses JSON (catalogues, accueil, recherche) sont volumineuses :
+		// sans compression, un téléphone en 3G télécharge plusieurs fois plus
+		// d'octets que nécessaire.
+		.layer(CompressionLayer::new());
 
 	// Sans build frontend, `/` décrit l'API ; sinon `dist/index.html` est servi par le fallback.
 	if !has_build {
